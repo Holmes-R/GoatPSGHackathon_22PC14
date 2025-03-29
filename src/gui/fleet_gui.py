@@ -4,7 +4,8 @@ import dash
 import networkx as nx
 import plotly.graph_objects as go
 from dash import dcc, html
-from dash.dependencies import Input, Output, State, ALL
+from dash.dependencies import Input, Output, State
+import requests  # To send requests to FastAPI
 
 # Dash App
 dash_app = dash.Dash(__name__)
@@ -12,7 +13,8 @@ dash_app = dash.Dash(__name__)
 # Graph Data
 G = nx.Graph()
 pos = {}
-robot_positions = {}
+robot_positions = {}  # Dictionary to store robot positions
+robot_counter = 1  # Unique identifier for robots
 
 # Predefined colors for nodes
 node_colors = ["red", "blue", "green", "purple", "orange", "brown", "pink", "gray", "cyan", "magenta"]
@@ -22,7 +24,7 @@ def extract_graph_data(json_data):
     global G, pos
     G.clear()
     pos.clear()
-    
+
     levels = json_data.get("levels", {})
     level_key = list(levels.keys())[0]  # Assuming first level
     level_data = levels[level_key]
@@ -54,7 +56,9 @@ def draw_graph():
             marker=dict(size=12, color=color),
             text=G.nodes[node]["label"],
             textposition="top center",
-            name=G.nodes[node]["label"]
+            name=G.nodes[node]["label"],
+            customdata=[[node]],  # <-- Wrap node index in a list to avoid TypeError
+            hoverinfo='text'
         ))
 
     # Draw edges
@@ -69,71 +73,88 @@ def draw_graph():
         ))
 
     # Draw robots
-    for robot_id, node in robot_positions.items():
+    for robot_id, (node, robot_color) in robot_positions.items():  # <-- Correct unpacking
         fig.add_trace(go.Scatter(
             x=[pos[node][0]], y=[pos[node][1]],
             mode="markers+text",
-            marker=dict(size=16, color="black", symbol="circle"),
+            marker=dict(size=16, color=robot_color, symbol="circle"),  # <-- Use the node's color
             text=f"R{robot_id}",
             textposition="bottom center",
-            name=f"Robot {robot_id}"
+            name=f"Robot {robot_id}",
+            customdata=[node],  # <-- Store the correct node index
+            hoverinfo='text'
         ))
+
     return fig
 
-def generate_spawn_buttons():
-    """Dynamically create a button for each node."""
-    return [html.Button(f"Spawn at {G.nodes[n]['label']}", id={"type": "spawn-btn", "index": n}) for n in G.nodes if n not in robot_positions.values()]
 
+
+
+# Dash Layout
 dash_app.layout = html.Div([
     html.H1("Environment & Robot Visualization"),
     dcc.Upload(id="upload-data", children=html.Button("Upload JSON File"), multiple=False),
-    dcc.Graph(id="graph-plot"),
-    html.Div(id="spawn-buttons"),  # Buttons will be updated dynamically
+    dcc.Graph(id="graph-plot", config={'displayModeBar': False}),
     html.Div(id="robot-status"),
 ])
 
-# **Callback 1: Handle File Upload and Generate Graph**
 @dash_app.callback(
     Output("graph-plot", "figure"),
-    Output("spawn-buttons", "children"),
-    Input("upload-data", "contents")
-)
-def update_graph_from_upload(file_contents):
-    if not file_contents:
-        return go.Figure(), ""
-
-    content_type, content_string = file_contents.split(",")
-    decoded = base64.b64decode(content_string)
-    json_data = json.loads(decoded)
-    extract_graph_data(json_data)
-
-    return draw_graph(), generate_spawn_buttons()
-
-@dash_app.callback(
-    Output("graph-plot", "figure", allow_duplicate=True),
     Output("robot-status", "children"),
-    Output("spawn-buttons", "children", allow_duplicate=True),
-    Input({"type": "spawn-btn", "index": ALL}, "n_clicks"),
-    State({"type": "spawn-btn", "index": ALL}, "id"),
+    [Input("upload-data", "contents"), Input("graph-plot", "clickData")],
     prevent_initial_call=True
 )
-def spawn_robot(n_clicks, button_ids):
+def update_graph(file_contents, clickData):
+    global robot_counter, robot_positions
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return dash.no_update, "", dash.no_update
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
 
-    for i, clicks in enumerate(n_clicks):
-        if clicks and button_ids[i]:
-            node_index = button_ids[i]["index"]
-            
-            # Ensure the robot spawns only if the vertex is unoccupied
-            if node_index not in robot_positions.values():
-                robot_positions[len(robot_positions) + 1] = node_index
-                return draw_graph(), f"Robot spawned at {G.nodes[node_index]['label']}!", generate_spawn_buttons()
+    message = ""
+
+    # Handle file upload
+    if triggered_id == "upload-data" and file_contents:
+        content_type, content_string = file_contents.split(",")
+        decoded = base64.b64decode(content_string)
+        json_data = json.loads(decoded)
+        extract_graph_data(json_data)
+
+        # **Reset robot positions and counter**
+        robot_positions.clear()
+        robot_counter = 1  
+
+    # Handle robot spawning on graph click
+    elif triggered_id == "graph-plot" and clickData:
+        print("DEBUG: Received clickData ->", clickData)  # Print raw clickData
+
+        point_data = clickData['points'][0]
+        node_index = point_data.get('customdata', [None])[0] if isinstance(point_data.get('customdata'), list) else point_data.get('customdata')
+
+        print("DEBUG: Extracted node_index ->", node_index)  # Print extracted node
+
+        if node_index is None:
+            message = "Invalid click. Please select a valid node."
+        elif node_index in G.nodes:  
+            print(f"DEBUG: Node {node_index} found in G.nodes")  # Confirm node exists
+
+            response = requests.post(f"http://127.0.0.1:8000/spawn_robot/{node_index}")
+            if response.ok:
+                robot_info = response.json()
+                message = robot_info["message"]
+
+                node_color = G.nodes[node_index].get("color", "black")  
+                robot_positions[robot_counter] = (node_index, node_color)  
+
+                message += f" Robot R{robot_counter} spawned at Node {node_index}."
+                robot_counter += 1
             else:
-                return dash.no_update, f"Robot already exists at {G.nodes[node_index]['label']}!", dash.no_update
-    
-    return dash.no_update, "", dash.no_update
+                message = response.json().get("message", "Error spawning robot.")
+        else:
+            print(f"DEBUG: Node {node_index} NOT found in G.nodes")  # Debug why it's invalid
+            message = "Invalid node selected."
+
+    return draw_graph(), message
+
+
 
 if __name__ == "__main__":
     dash_app.run(debug=True, port=8051)

@@ -25,9 +25,7 @@ robot_positions = {}
 
 # Predefined colors for nodes
 node_colors = ["red", "blue", "green", "purple", "orange", "brown", "pink", "gray", "cyan", "magenta"]
-
 def extract_graph_data(json_data):
-    """Extracts graph data from JSON and assigns unique indices."""
     global G, pos
     G.clear()
     pos.clear()
@@ -50,6 +48,9 @@ def extract_graph_data(json_data):
         if source_index < len(vertices) and target_index < len(vertices):
             G.add_edge(source_index, target_index)
 
+    # Log the nodes after extraction for debugging
+    print("Graph Nodes:", list(G.nodes(data=True)))
+
 print("Graph Nodes:", list(G.nodes(data=True)))
 print("Node Positions:", pos)
 
@@ -64,10 +65,11 @@ async def get_graph():
 @app.post("/spawn_robot/{node_id}")
 async def spawn_robot(node_id: int):
     """Spawns a robot at a given node"""
-    if node_id in G.nodes and node_id not in robot_positions.values():
-        robot_positions[len(robot_positions) + 1] = node_id
-        return {"message": f"Robot spawned at {G.nodes[node_id]['label']}", "robots": robot_positions}
-    return {"message": "Invalid node or already occupied", "robots": robot_positions}
+    if node_id in G.nodes:
+        robot_id = len(robot_positions) + 1  # Create a new robot ID
+        robot_positions[robot_id] = node_id  # Assign the node to the new robot
+        return {"message": f"Robot {robot_id} spawned at {G.nodes[node_id]['label']}", "robots": robot_positions}
+    return {"message": " ", "robots": robot_positions}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
