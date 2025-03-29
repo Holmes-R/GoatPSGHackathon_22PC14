@@ -6,14 +6,14 @@ import plotly.graph_objects as go
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import requests  # To send requests to FastAPI
-
+from src.models.robots import Robot
 # Dash App
 dash_app = dash.Dash(__name__)
 
 # Graph Data
 G = nx.Graph()
 pos = {}
-robot_positions = {}  # Dictionary to store robot positions
+robot_positions = {}  # Dictionary to store robot positions and their colors
 robot_counter = 1  # Unique identifier for robots
 
 # Predefined colors for nodes
@@ -50,14 +50,15 @@ def draw_graph():
     # Draw nodes
     for node in G.nodes():
         color = G.nodes[node].get("color", "blue")
+        node_label = G.nodes[node].get("label", f"Node {node}")
         fig.add_trace(go.Scatter(
             x=[pos[node][0]], y=[pos[node][1]],
             mode="markers+text",
             marker=dict(size=12, color=color),
-            text=G.nodes[node]["label"],
+            text=node_label,
             textposition="top center",
-            name=G.nodes[node]["label"],
-            customdata=[[node]],  # <-- Wrap node index in a list to avoid TypeError
+            name=node_label,
+            customdata=[[node]],  # Wrap node index in a list to avoid TypeError
             hoverinfo='text'
         ))
 
@@ -72,23 +73,22 @@ def draw_graph():
             showlegend=False
         ))
 
-    # Draw robots
-    for robot_id, (node, robot_color) in robot_positions.items():  # <-- Correct unpacking
+    # Draw robots and display their status
+    for robot_id, robot in robot_positions.items():
+        robot_status = robot.get_status()  # Get robot's current status
+        robot_color = robot.node_color
         fig.add_trace(go.Scatter(
-            x=[pos[node][0]], y=[pos[node][1]],
+            x=[pos[robot.position][0]], y=[pos[robot.position][1]],
             mode="markers+text",
-            marker=dict(size=16, color=robot_color, symbol="circle"),  # <-- Use the node's color
-            text=f"R{robot_id}",
+            marker=dict(size=16, color=robot_color, symbol="circle"),
+            text=f"R{robot_id}: {robot_status}",
             textposition="bottom center",
             name=f"Robot {robot_id}",
-            customdata=[node],  # <-- Store the correct node index
+            customdata=[robot.position],
             hoverinfo='text'
         ))
 
     return fig
-
-
-
 
 # Dash Layout
 dash_app.layout = html.Div([
@@ -124,37 +124,28 @@ def update_graph(file_contents, clickData):
 
     # Handle robot spawning on graph click
     elif triggered_id == "graph-plot" and clickData:
-        print("DEBUG: Received clickData ->", clickData)  # Print raw clickData
-
         point_data = clickData['points'][0]
         node_index = point_data.get('customdata', [None])[0] if isinstance(point_data.get('customdata'), list) else point_data.get('customdata')
-
-        print("DEBUG: Extracted node_index ->", node_index)  # Print extracted node
 
         if node_index is None:
             message = "Invalid click. Please select a valid node."
         elif node_index in G.nodes:  
-            print(f"DEBUG: Node {node_index} found in G.nodes")  # Confirm node exists
-
             response = requests.post(f"http://127.0.0.1:8000/spawn_robot/{node_index}")
             if response.ok:
                 robot_info = response.json()
                 message = robot_info["message"]
 
                 node_color = G.nodes[node_index].get("color", "black")  
-                robot_positions[robot_counter] = (node_index, node_color)  
+                robot_positions[robot_counter] = Robot(robot_counter, node_index, node_color)
 
                 message += f" Robot R{robot_counter} spawned at Node {node_index}."
                 robot_counter += 1
             else:
                 message = response.json().get("message", "Error spawning robot.")
         else:
-            print(f"DEBUG: Node {node_index} NOT found in G.nodes")  # Debug why it's invalid
             message = "Invalid node selected."
 
     return draw_graph(), message
-
-
 
 if __name__ == "__main__":
     dash_app.run(debug=True, port=8051)

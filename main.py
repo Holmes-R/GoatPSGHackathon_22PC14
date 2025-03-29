@@ -25,6 +25,8 @@ robot_positions = {}
 
 # Predefined colors for nodes
 node_colors = ["red", "blue", "green", "purple", "orange", "brown", "pink", "gray", "cyan", "magenta"]
+robot_counter = 1  # Global robot counter for uniqueness
+
 def extract_graph_data(json_data):
     global G, pos
     G.clear()
@@ -50,9 +52,7 @@ def extract_graph_data(json_data):
 
     # Log the nodes after extraction for debugging
     print("Graph Nodes:", list(G.nodes(data=True)))
-
-print("Graph Nodes:", list(G.nodes(data=True)))
-print("Node Positions:", pos)
+    print("Node Positions:", pos)
 
 @app.get("/graph")
 async def get_graph():
@@ -65,9 +65,11 @@ async def get_graph():
 @app.post("/spawn_robot/{node_id}")
 async def spawn_robot(node_id: int):
     """Spawns a robot at a given node"""
+    global robot_counter  # Ensure robot_counter is global
     if node_id in G.nodes:
-        robot_id = len(robot_positions) + 1  # Create a new robot ID
-        robot_positions[robot_id] = node_id  # Assign the node to the new robot
+        robot_id = robot_counter  # Use the global robot counter
+        robot_counter += 1  # Increment the robot counter for next robot
+        robot_positions[robot_id] = (node_id, G.nodes[node_id]['color'])  # Store node index and robot color
         return {"message": f"Robot {robot_id} spawned at {G.nodes[node_id]['label']}", "robots": robot_positions}
     return {"message": " ", "robots": robot_positions}
 
@@ -78,7 +80,7 @@ async def websocket_endpoint(websocket: WebSocket):
     while True:
         await asyncio.sleep(2)  # Simulating movement
         for robot_id in robot_positions.keys():
-            robot_positions[robot_id] = random.choice(list(G.nodes))
+            robot_positions[robot_id] = (random.choice(list(G.nodes)), G.nodes[random.choice(list(G.nodes))]['color'])
         await websocket.send_json({"robots": robot_positions})
 
 if __name__ == "__main__":
