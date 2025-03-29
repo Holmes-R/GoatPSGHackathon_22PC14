@@ -17,6 +17,7 @@ class FleetManagementApp:
         self.padding = 50
         self.vertex_radius = 15
         self.selected_robot = None
+        self.after_id = None
         
     def setup_main_window(self):
         """Configure main window layout"""
@@ -152,6 +153,24 @@ class FleetManagementApp:
         
         # Redraw any existing robots
         for robot in self.fleet_manager.robots:
+            if robot.robot_id in self.fleet_manager.robot_destinations:
+                start = robot.position
+                end = self.fleet_manager.robot_destinations[robot.robot_id]
+                path = self.fleet_manager.calculate_path(start, end)
+                
+                # Draw path line
+                path_coords = []
+                for point in path:
+                    x, y = self.fleet_manager.get_canvas_coords(point)
+                    path_coords.extend([x, y])
+                
+                if len(path_coords) > 2:
+                    self.canvas.create_line(
+                        *path_coords,
+                        fill="gray",
+                        dash=(5, 3),
+                        tags="path"
+                    )
             x, y = self.fleet_manager.get_canvas_coords(robot.position)
             robot.robot_obj = self.canvas.create_oval(x-10, y-10, x+10, y+10,
                                                     fill=robot.color, 
@@ -210,20 +229,28 @@ class FleetManagementApp:
         tk.Button(dest_window, text="Assign Destination", 
                  command=assign_destination).pack(pady=5)
 
+    def update_robot_display(self, robot):
+        """Callback for updating robot visualization"""
+        robot.update_visualization()
+        self.master.update()  # Refresh GUI
+    
     def start_movement(self):
-        """Start movement of all robots to their destinations"""
-        success, messages = self.fleet_manager.start_movement()
+        """Start animated movement"""
+        if self.after_id:
+            self.master.after_cancel(self.after_id)
+        
+        success, messages = self.fleet_manager.start_movement(self.update_robot_display)
         for msg in messages:
             self.add_history_entry("System", msg)
         
         if success:
-            # Update robot positions on canvas
-            for robot in self.fleet_manager.robots:
-                x, y = self._get_canvas_coords(robot.position)
-                self.canvas.coords(robot.robot_obj, x-10, y-10, x+10, y+10)
-                self.canvas.coords(robot.label_obj, x, y-15)
-            
             self.start_button.config(state=tk.DISABLED)
+
+        def on_closing(self):
+            """Handle window closing"""
+            if self.after_id:
+                self.master.after_cancel(self.after_id)
+            self.master.destroy()
 
     def move_robots(self):
         """Move all robots to random vertices"""

@@ -2,7 +2,7 @@ import json
 import random
 from typing import Dict, List, Optional, Tuple
 from src.models.robots import Robot
-
+import time
 class FleetManager:
     def __init__(self):
         self.robots: List[Robot] = []
@@ -12,6 +12,8 @@ class FleetManager:
         self.nav_graph: Optional[dict] = None
         self.robot_destinations: Dict[str, tuple] = {}
         self.selected_robot: Optional[Robot] = None
+        self.navigation_delay = 2.0  # seconds between steps
+        self.navigation_steps = 10
         
         # Visualization parameters
         self.padding: int = 50
@@ -140,20 +142,38 @@ class FleetManager:
         target_vertex = self.nav_graph["vertices"][vertex_idx]
         self.robot_destinations[robot_id] = target_vertex
         return True, f"Destination set to {self.vertex_names[vertex_idx]}"
+    
+    def calculate_path(self, start_pos: tuple, end_pos: tuple) -> List[tuple]:
+        """Calculate path from start to end position"""
+        # Simple linear interpolation for demonstration
+        path = []
+        for i in range(self.navigation_steps + 1):
+            x = start_pos[0] + (end_pos[0] - start_pos[0]) * (i/self.navigation_steps)
+            y = start_pos[1] + (end_pos[1] - start_pos[1]) * (i/self.navigation_steps)
+            path.append((x, y))
+        return path
 
-    def start_movement(self) -> Tuple[bool, List[str]]:
-        """Move all robots to their assigned destinations"""
+    def start_movement(self, gui_callback) -> Tuple[bool, List[str]]:
+        """Move all robots to their destinations with visualization"""
         if not self.robot_destinations:
             return False, ["No destinations set"]
         
         movement_logs = []
         for robot in self.robots:
             if robot.robot_id in self.robot_destinations:
-                target_vertex = self.robot_destinations[robot.robot_id]
-                vertex_name = self.get_vertex_name(target_vertex)
-                robot.move(target_vertex)
-                robot.set_status("moving")
-                movement_logs.append(f"{robot.robot_id} started moving to {vertex_name}")
+                target = self.robot_destinations[robot.robot_id]
+                path = self.calculate_path(robot.position, target)
+                
+                # Animate movement
+                for step, new_pos in enumerate(path):
+                    robot.position = new_pos
+                    gui_callback(robot)  # Update GUI
+                    time.sleep(self.navigation_delay/self.navigation_steps)
+                    
+                    if step == len(path)-1:
+                        movement_logs.append(
+                            f"{robot.robot_id} reached {self.get_vertex_name(target)}"
+                        )
         
         self.robot_destinations.clear()
         return True, movement_logs

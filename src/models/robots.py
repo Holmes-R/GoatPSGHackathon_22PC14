@@ -12,6 +12,8 @@ class Robot:
         self.status = "waiting"
         self.robot_obj = None
         self.label_obj = None
+        self.path = []
+        self.current_step = 0
 
     def spawn(self):
         """Create visual representation of the robot"""
@@ -28,7 +30,13 @@ class Robot:
             text=f"{self.robot_id}", 
             font=("Arial", 8, "bold")
         )
-
+    
+    def update_visualization(self):
+        """Update robot's visual position on canvas"""
+        x, y = self._get_canvas_coords()
+        self.canvas.coords(self.robot_obj, x-10, y-10, x+10, y+10)
+        self.canvas.coords(self.label_obj, x, y-15)
+        
     def _find_vertex_index(self):
         """Find vertex index by position"""
         if not hasattr(self, 'fleet_manager'):
