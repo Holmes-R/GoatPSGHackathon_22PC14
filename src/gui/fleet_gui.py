@@ -6,7 +6,9 @@ import plotly.graph_objects as go
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import requests  # To send requests to FastAPI
+from datetime import datetime  # To record timestamps
 from src.models.robots import Robot
+
 # Dash App
 dash_app = dash.Dash(__name__)
 
@@ -15,6 +17,8 @@ G = nx.Graph()
 pos = {}
 robot_positions = {}  # Dictionary to store robot positions and their colors
 robot_counter = 1  # Unique identifier for robots
+robot_history = {}  # Dictionary to track history of robots for each node
+all_robot_history = []  # Store history of all robots spawned globally
 
 # Predefined colors for nodes
 node_colors = ["red", "blue", "green", "purple", "orange", "brown", "pink", "gray", "cyan", "magenta"]
@@ -96,20 +100,26 @@ dash_app.layout = html.Div([
     dcc.Upload(id="upload-data", children=html.Button("Upload JSON File"), multiple=False),
     dcc.Graph(id="graph-plot", config={'displayModeBar': False}),
     html.Div(id="robot-status"),
+    html.Div(id="robot-history"),  # To display the history of robots
+    html.Div(id="all-robots-history"),  # To display the history of all robots
 ])
 
 @dash_app.callback(
-    Output("graph-plot", "figure"),
-    Output("robot-status", "children"),
+    [Output("graph-plot", "figure"),
+     Output("robot-status", "children"),
+     Output("robot-history", "children"),
+     Output("all-robots-history", "children")],
     [Input("upload-data", "contents"), Input("graph-plot", "clickData")],
     prevent_initial_call=True
 )
 def update_graph(file_contents, clickData):
-    global robot_counter, robot_positions
+    global robot_counter, robot_positions, robot_history, all_robot_history
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
 
     message = ""
+    history_message = ""  # To display robot history at a node
+    all_history_message = ""  # To display all robots' history
 
     # Handle file upload
     if triggered_id == "upload-data" and file_contents:
@@ -120,6 +130,8 @@ def update_graph(file_contents, clickData):
 
         # **Reset robot positions and counter**
         robot_positions.clear()
+        robot_history.clear()  # Clear the robot history
+        all_robot_history.clear()  # Clear the history of all robots
         robot_counter = 1  
 
     # Handle robot spawning on graph click
@@ -138,6 +150,13 @@ def update_graph(file_contents, clickData):
                 node_color = G.nodes[node_index].get("color", "black")  
                 robot_positions[robot_counter] = Robot(robot_counter, node_index, node_color)
 
+                # Add robot to history
+                robot_history[node_index] = robot_history.get(node_index, [])
+                robot_history[node_index].append({"robot_id": robot_counter, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+                # Add robot to global history
+                all_robot_history.append({"robot_id": robot_counter, "spawned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "node": node_index})
+
                 message += f" Robot R{robot_counter} spawned at Node {node_index}."
                 robot_counter += 1
             else:
@@ -145,7 +164,18 @@ def update_graph(file_contents, clickData):
         else:
             message = "Invalid node selected."
 
-    return draw_graph(), message
+    # Display robot history for the selected node (if any)
+    if clickData:
+        node_index = clickData['points'][0].get('customdata', [None])[0]
+        if node_index in robot_history:
+            history_message = f"Robot History at Node {node_index}:" + " "
+            history_message += " ".join([f"Robot {entry['robot_id']} spawned at {entry['timestamp']}" for entry in robot_history[node_index]])
+
+    # Display the history of all robots spawned
+    all_history_message = "History of All Robots Spawned:<br>"
+    all_history_message += " ".join([f"Robot {entry['robot_id']} spawned at {entry['spawned_at']} at Node {entry['node']}" for entry in all_robot_history])
+
+    return draw_graph(), message, history_message, all_history_message
 
 if __name__ == "__main__":
-    dash_app.run(debug=True, port=8051)
+    dash_app.run(debug=True, port=8050)
