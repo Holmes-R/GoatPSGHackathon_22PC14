@@ -5,9 +5,13 @@
 
 #### GUI for Testing 
 
-pip install -r requirements.txt
 
-python main.py
+To run tests, run the following command
+
+```bash
+  pip install -r requirements.txt 
+  python main.py
+```
 
 #### 
 
