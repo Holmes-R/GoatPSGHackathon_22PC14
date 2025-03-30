@@ -138,9 +138,15 @@ class FleetManager:
         return robot, f"Spawned at {self.vertex_names[vertex_idx]}"
 
     def set_robot_destination(self, robot_id: str, vertex_idx: int) -> Tuple[bool, str]:
-        """Set destination for a specific robot"""
+        """Set destination for a specific robot with occupancy check"""
         if not self.nav_graph or vertex_idx >= len(self.nav_graph["vertices"]):
             return False, "Invalid vertex index"
+        
+        # Check if vertex is occupied
+        for robot in self.robots:
+            if (self.get_vertex_index(robot.position) == vertex_idx and 
+                robot.robot_id != robot_id):  # Allow robot to select its current position
+                return False, f"Vertex {self.vertex_names.get(vertex_idx, '')} occupied by {robot.robot_id}"
         
         robot = next((r for r in self.robots if r.robot_id == robot_id), None)
         if not robot:
@@ -152,7 +158,7 @@ class FleetManager:
             
         target_vertex = self.nav_graph["vertices"][vertex_idx]
         self.robot_destinations[robot_id] = target_vertex
-        return True, f"Destination set to {self.vertex_names[vertex_idx]}"
+        return True, f"Destination set to {self.vertex_names.get(vertex_idx, '')}"
     
     def calculate_path(self, start_pos: tuple, end_pos: tuple) -> List[tuple]:
         """Calculate path from start to end position"""
@@ -480,50 +486,45 @@ class FleetManager:
         """Thread-safe movement with proper destination handling"""
         try:
             while True:
-                # 1. Destination check
+                # 1. Check if reached destination
                 if self.has_reached_destination(robot.position, target_pos):
                     robot.set_status("idle")
                     gui_update_callback(robot, "idle")
-                    time.sleep(1)
+                    break
                     
-                    # 2. Get new destination
-                    current_idx = self.get_vertex_index(robot.position)
-                    available = [i for i in range(len(self.nav_graph["vertices"]))
-                            if i != current_idx]
-                    if available:
-                        target_pos = self.nav_graph["vertices"][random.choice(available)]
-                        gui_update_callback(robot, "waiting")
-                    continue
-
-                # 3. Pathfinding
+                # 2. Find path
                 path_indices = self.find_path_to_destination(robot.position, target_pos)
                 if not path_indices:
+                    robot.set_status("blocked")
                     gui_update_callback(robot, "blocked")
                     time.sleep(1)
                     continue
-
-                # 4. Lane reservation
+                    
+                # 3. Reserve path
                 if not self.traffic_manager.reserve_path(robot.robot_id, path_indices):
+                    robot.set_status("waiting")
                     gui_update_callback(robot, "waiting")
                     time.sleep(0.5)
                     continue
-
-                # 5. Movement execution
-                path_points = self.interpolate_path_points(path_indices)
+                    
+                # 4. Move along path
+                path_points = self.calculate_path_along_edges(path_indices)
                 for point in path_points:
                     if self.has_reached_destination(robot.position, target_pos):
                         break
+                        
                     robot.position = point
+                    robot.set_status("moving")
                     gui_update_callback(robot, "moving")
                     time.sleep(0.1)
-
-                # 6. Cleanup
+                    
+                # 5. Release path
                 self.traffic_manager.release_path(robot.robot_id, path_indices)
-
+                
         except Exception as e:
+            robot.set_status("error")
             gui_update_callback(robot, "error")
-            print(f"Robot {robot.robot_id} error: {str(e)}")
-            time.sleep(1)
+            print(f"Movement error for {robot.robot_id}: {str(e)}")
         
     def interpolate_path_points(self, vertex_path: List[int]) -> List[tuple]:
         """Convert vertex indices to smooth path points"""
@@ -616,3 +617,34 @@ class FleetManager:
         target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 
                 else (round(target_pos[0]), 0))
         return current == target
+    
+    def spawn_robot_threadsafe(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
+        """Thread-safe robot spawning"""
+        with threading.Lock():
+            robot, message = self.spawn_robot(vertex_idx, canvas)
+            if robot:
+                self._assign_initial_task(robot)
+            return robot, message
+
+    def _assign_initial_task(self, robot: Robot) -> None:
+        """Assign first task to newly spawned robot"""
+        current_idx = self.get_vertex_index(robot.position)
+        available = [i for i in range(len(self.nav_graph["vertices"])) 
+                if i != current_idx]
+        if available:
+            dest_idx = random.choice(available)
+            self.set_robot_destination(robot.robot_id, dest_idx)
+            self.start_robot_thread(robot)
+
+    def start_robot_thread(self, robot: Robot) -> None:
+        """Start movement thread for a robot"""
+        threading.Thread(
+            target=self.move_robot_concurrently,
+            args=(robot, self.robot_destinations[robot.robot_id], self.safe_gui_update),
+            daemon=True
+        ).start()
+
+    def clear_path_reservations(self, robot_id):
+        """Clear all path reservations for a robot"""
+        if hasattr(self, 'traffic_manager'):
+            self.traffic_manager.release_all_for_robot(robot_id)

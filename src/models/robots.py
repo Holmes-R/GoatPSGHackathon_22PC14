@@ -21,6 +21,7 @@ class Robot:
         self.effect_id = None
         self.waiting_effect = None
         self.path = []
+        self.path_history = []
         self.current_step = 0
         
         self.status_colors = {
@@ -31,6 +32,9 @@ class Robot:
             "blocked": "#FF0000",
             "error": "#FFA500"
         }
+
+        self.current_task = None
+        self.task_complete_callback = None
 
     def spawn(self):
         """Create visual representation of the robot"""
@@ -47,6 +51,12 @@ class Robot:
             text=self.robot_id,
             font=("Arial", 8, "bold")
         )
+
+        def assign_task(self, destination, callback=None):
+            """Assign a new task to the robot"""
+            self.current_task = destination
+            self.task_complete_callback = callback
+            self.set_status("task_assigned")
 
     def update_visualization(self):
         """Update robot's visual position and status"""

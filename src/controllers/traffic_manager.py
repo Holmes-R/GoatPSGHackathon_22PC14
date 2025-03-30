@@ -17,42 +17,35 @@ class TrafficManager:
         self.lock = threading.Lock()
         self.priority_weights = defaultdict(float)  # {robot_id: priority_weight}
         self.robot_destinations = {}
+        self.lane_reservations = {}
         
+
     def reserve_path(self, robot_id, path_indices):
-        """Safe path reservation with checks"""
-        if not hasattr(self, 'fleet_manager'):
-            return False
-            
-        robot = self.fleet_manager.get_robot_by_id(robot_id)
-        if not robot:
-            return False
-            
-        target_pos = self.fleet_manager.robot_destinations.get(robot_id)
-        if not target_pos:
-            return False
-            
-        if self.fleet_manager.has_reached_destination(robot.position, target_pos):
-            return False
-            
-        lanes = self._path_to_lanes(path_indices)
-        with self.lock:
-            # Check all lanes first
-            for lane in lanes:
-                if lane in self.reserved_lanes and self.reserved_lanes[lane] != robot_id:
-                    return False
-            # Reserve all lanes
-            for lane in lanes:
-                self.reserved_lanes[lane] = robot_id
-            return True
+        """Reserve all lanes in a path"""
+        # Convert vertex indices to lane segments
+        lanes = []
+        for i in range(len(path_indices)-1):
+            from_idx = path_indices[i]
+            to_idx = path_indices[i+1]
+            lanes.append((min(from_idx, to_idx), max(from_idx, to_idx)))
+        
+        # Try to reserve all lanes
+        for lane in lanes:
+            if not self.reserve_lane(lane, robot_id):
+                # If any lane can't be reserved, release all previously reserved ones
+                for reserved_lane in lanes:
+                    if reserved_lane in self.lane_reservations:
+                        self.release_lane(reserved_lane)
+                return False
+        return True
 
-
-    def release_path(self, robot_id: str, path_indices: List[int]):
+    def release_path(self, robot_id, path_indices):
         """Release all lanes in a path"""
-        lanes = self._path_to_lanes(path_indices)
-        with self.lock:
-            for lane in lanes:
-                if self.reserved_lanes.get(lane) == robot_id:
-                    del self.reserved_lanes[lane]
+        for i in range(len(path_indices)-1):
+            from_idx = path_indices[i]
+            to_idx = path_indices[i+1]
+            lane = (min(from_idx, to_idx), max(from_idx, to_idx))
+            self.release_lane(lane)
         
     def try_reserve_lane(self, robot_id: str, lane: Tuple[int, int], timeout_sec: float = 5.0) -> bool:
         """
@@ -202,25 +195,26 @@ class TrafficManager:
             self.congestion_data
         )
     
-    def reserve_lane(self, robot_id: str, lane: tuple) -> bool:
-        """Attempt to reserve a single lane"""
-        with self.lock:
-            if lane not in self.reserved_lanes:
-                self.reserved_lanes[lane] = robot_id
-                return True
-            return False
+    def reserve_lane(self, lane, robot_id):
+        """Reserve a lane for a specific robot"""
+        if lane in self.lane_reservations:
+            return False  # Lane already reserved
+        self.lane_reservations[lane] = robot_id
+        return True
 
-    def release_lane(self, robot_id: str, lane: tuple):
-        """Release a lane and notify next robot"""
-        with self.lock:
-            if self.reserved_lanes.get(lane) == robot_id:
-                del self.reserved_lanes[lane]
-                if self.waiting_queues[lane]:
-                    next_robot = self.waiting_queues[lane].popleft()
-                    self.reserved_lanes[lane] = next_robot
-                    return next_robot
-        return None
+    def release_lane(self, lane):
+        """Release a reserved lane"""
+        if lane in self.lane_reservations:
+            del self.lane_reservations[lane]
+
     
+    def release_all_for_robot(self, robot_id):
+        """Release all lanes reserved by a specific robot"""
+        lanes_to_release = [lane for lane, reserver in self.lane_reservations.items() 
+                          if reserver == robot_id]
+        for lane in lanes_to_release:
+            self.release_lane(lane)
+
     def wait_for_lane(self, robot_id: str, lane: tuple, timeout=5.0):
         """Wait for a lane to become available"""
         start_time = time.time()
@@ -237,3 +231,10 @@ class TrafficManager:
     def has_reached_destination(self, current_pos, target_pos):
         """Public destination check"""
         return self._has_reached_destination(current_pos, target_pos)
+    
+    def release_all_for_robot(self, robot_id):
+        """Release all reservations for a specific robot"""
+        lanes_to_release = [lane for lane, reserved_by in self.lane_reservations.items() 
+                        if reserved_by == robot_id]
+        for lane in lanes_to_release:
+            self.release_lane(lane)
