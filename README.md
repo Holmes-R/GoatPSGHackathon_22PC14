@@ -81,4 +81,15 @@ python main.py
 
 - Congestion-Aware Pathfinding (A* algorithm )
 
-- Priority Negotiation 
+- Priority Negotiation
+
+#### 5. Dynamic Interaction
+
+##### 5.1 Runtime Flexibility
+
+    New robots and tasks can be added without interrupting existing movements.
+
+
+-  Threaded movement ensures smooth concurrent operations.
+
+- The system dynamically adjusts to new spawns and path changes.
