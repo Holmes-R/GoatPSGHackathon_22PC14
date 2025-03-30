@@ -17,6 +17,9 @@ To run tests, run the following command
 
 ### Project Explanation 
 
+![image](https://github.com/user-attachments/assets/ae0e0d44-2fce-48d5-9ce2-60fde1be33d0)
+
+
 #### 1. Visual Representation
 
 ##### 1.1 Environment Visualization
@@ -50,6 +53,9 @@ To run tests, run the following command
 
         🔴 Blocked (Red)
 
+![image](https://github.com/user-attachments/assets/2f816361-80ea-41ce-97e9-4845767cd11b)
+
+
 #### 2. Robot Spawing 
 
 ##### 2.1 Interactive GUI Spawning
@@ -59,6 +65,8 @@ To run tests, run the following command
 - Clicking a vertex opens a popup to spawn a robot .
 - Each robot gets a unique ID (e.g., "R1", "R2") .
 - If a vertex is occupied, a warning is displayed .
+
+![image](https://github.com/user-attachments/assets/81e974a4-4d71-4022-adae-22195a8259d4)
 
 
 #### 3. Navigation Task Assignment
@@ -76,7 +84,10 @@ To run tests, run the following command
 
 - Primary Algorithm: A (A-Star) with Congestion Awareness
 
-- Fallback Algorithm: Breadth-First Search (BFS) : Finds any available path 
+- Fallback Algorithm: Breadth-First Search (BFS) : Finds any available path
+
+  ![image](https://github.com/user-attachments/assets/ad94e0cb-6185-4a8d-b593-c438bfdc5abe)
+
 
 #### 4. Traffic Negotiation & Collision Avoidance
 
@@ -91,6 +102,9 @@ To run tests, run the following command
 
 - Priority Negotiation
 
+![image](https://github.com/user-attachments/assets/b1dbf0aa-f5aa-4588-9b61-986817760f2b)
+
+
 #### 5. Dynamic Interaction
 
 ##### 5.1 Runtime Flexibility
@@ -102,6 +116,9 @@ To run tests, run the following command
 
 - The system dynamically adjusts to new spawns and path changes.
 
+![image](https://github.com/user-attachments/assets/b63d5f0c-3316-4fbd-bc94-405d53434f99)
+
+
 #### 6. Occupancy and Conflict Notifications
 
 ##### 6.1 User Alerts
@@ -110,6 +127,8 @@ To run tests, run the following command
 
 
 -  Visual cues (flashing red) for conflicts.
+
+![image](https://github.com/user-attachments/assets/111268e1-3f31-49c4-a956-24e2c4b35f61)
 
 
 #### 7. Logging & Monitoring
