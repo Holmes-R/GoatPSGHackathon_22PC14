@@ -36,8 +36,10 @@ class FleetManager:
         self.scale_x: float = 1
         self.scale_y: float = 1
 
+    ### GRAPH MANAGEMENT FUNCTIONS 
+
     def load_nav_graph(self, file_path: str) -> Tuple[bool, str]:
-        """Load navigation graph from JSON file"""
+        """Load navigation graph from JSON file Core Logic """
         try:
             with open(file_path, "r") as file:
                 data = json.load(file)
@@ -50,37 +52,28 @@ class FleetManager:
             return False, f"Error loading file: {str(e)}"
 
     def _initialize_vertex_data(self):
-        """Initialize vertex colors and names with improved naming logic"""
+        """Initialize vertex colors and names with  naming """
         self.vertex_colors = {}
         self.vertex_names = {}
-        
-        # Available naming components
         prefixes = ["North", "South", "East", "West", "Central", "Main", "Gate", "Hub"]
         suffixes = ["Entrance", "Exit", "Junction", "Terminal", "Node", "Point", "Station", "Zone"]
         
         for idx, vertex in enumerate(self.nav_graph["vertices"]):
-            # Generate random color for vertex
             self.vertex_colors[idx] = f"#{random.randint(0, 0xFFFFFF):06x}"
             
-            # Determine vertex name
             if len(vertex) > 2 and isinstance(vertex[2], dict) and "name" in vertex[2]:
-                # Use name from graph data if available
                 self.vertex_names[idx] = vertex[2]["name"]
             else:
-                # Generate descriptive name if not provided
                 if idx < len(prefixes):
-                    # Use predefined names for first few vertices
                     if idx % 2 == 0:
                         self.vertex_names[idx] = f"{prefixes[idx]} {suffixes[idx]}"
                     else:
                         self.vertex_names[idx] = f"{prefixes[idx]}-{suffixes[idx]}"
                 else:
-                    # For additional vertices, use letter-number combination
                     letter = chr(65 + (idx % 26))  # A-Z
                     number = (idx // 26) + 1
                     self.vertex_names[idx] = f"{letter}{number}"
             
-            # Ensure name is unique
             if self.vertex_names[idx] in list(self.vertex_names.values())[:idx]:
                 self.vertex_names[idx] = f"{self.vertex_names[idx]}_{idx}"
 
@@ -103,13 +96,7 @@ class FleetManager:
         if graph_height > 0:
             self.scale_y = (canvas_height - 2 * self.padding) / graph_height
 
-    def get_canvas_coords(self, vertex: tuple) -> tuple:
-        """Convert graph coordinates to canvas coordinates"""
-        return (
-            self.padding + (vertex[0] - self.min_x) * self.scale_x,
-            self.padding + (vertex[1] - self.min_y) * self.scale_y
-        )
-
+    ### ROBOT MANAGEMENT FUNCTIONS 
 
     def spawn_robot(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
         """Spawn a new robot at the specified vertex (allows multiple robots per vertex)"""
@@ -117,7 +104,7 @@ class FleetManager:
             return None, "Invalid vertex index"
         
         self.robot_counter += 1
-        robot_id = f"R{self.robot_counter}"  # Unique ID for each robot
+        robot_id = f"R{self.robot_counter}" 
         vertex = self.nav_graph["vertices"][vertex_idx]
         
         robot = Robot(
@@ -133,8 +120,8 @@ class FleetManager:
             scale_y=self.scale_y
         )
         
-        robot.spawn()  # Ensure this method handles the initial position
-        self.robots.append(robot)  # Add robot to the list
+        robot.spawn()  
+        self.robots.append(robot)  
         return robot, f"Spawned at {self.vertex_names[vertex_idx]}"
 
     def set_robot_destination(self, robot_id: str, vertex_idx: int) -> Tuple[bool, str]:
@@ -142,10 +129,9 @@ class FleetManager:
         if not self.nav_graph or vertex_idx >= len(self.nav_graph["vertices"]):
             return False, "Invalid vertex index"
         
-        # Check if vertex is occupied
         for robot in self.robots:
             if (self.get_vertex_index(robot.position) == vertex_idx and 
-                robot.robot_id != robot_id):  # Allow robot to select its current position
+                robot.robot_id != robot_id):  
                 return False, f"Vertex {self.vertex_names.get(vertex_idx, '')} occupied by {robot.robot_id}"
         
         robot = next((r for r in self.robots if r.robot_id == robot_id), None)
@@ -160,9 +146,177 @@ class FleetManager:
         self.robot_destinations[robot_id] = target_vertex
         return True, f"Destination set to {self.vertex_names.get(vertex_idx, '')}"
     
+    def get_robot_by_id(self, robot_id):
+        """Get robot by its ID"""
+        return next((r for r in self.robots if r.robot_id == robot_id), None)
+    
+    def spawn_robot_threadsafe(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
+        """Thread-safe robot spawning"""
+        with threading.Lock():
+            robot, message = self.spawn_robot(vertex_idx, canvas)
+            if robot:
+                self._assign_initial_task(robot)
+            return robot, message
+        
+    def get_robot_status(self, robot_id: str) -> Optional[dict]:
+        """Get status of specific robot"""
+        robot = next((r for r in self.robots if r.robot_id == robot_id), None)
+        if robot:
+            return {
+                "id": robot.robot_id,
+                "position": robot.position,
+                "status": robot.status,
+                "vertex_name": self.get_vertex_name(robot.position)
+            }
+        return None
+    
+    def select_robot(self, position: tuple) -> Optional[Robot]:
+        """Select robot at given position"""
+        for robot in self.robots:
+            if (robot.position[0] == position[0] and 
+                robot.position[1] == position[1]):
+                self.selected_robot = robot
+                return robot
+        self.selected_robot = None
+        return None
+    
+    def on_canvas_click(self, event):
+        """Handle general canvas clicks for robot selection"""
+        if not self.fleet_manager.nav_graph or not self.fleet_manager.robots:
+            return
+            
+        for robot in self.fleet_manager.robots:
+            x, y = self.fleet_manager.get_canvas_coords(robot.position)
+            if ((event.x - x)**2 + (event.y - y)**2) <= (self.fleet_manager.vertex_radius**2):
+                self.select_robot(robot)
+                return
+            
+        self.deselect_robot()
+
+    def clear_all(self) -> str:
+        """Clear all robots and reset state"""
+        self.robots = []
+        self.robot_counter = 0
+        self.robot_destinations = {}
+        self.selected_robot = None
+        return "System reset complete"
+    
+    ### PATHFINDING AND MOVEMENT 
+
+    def get_all_robots_status(self) -> List[dict]:
+        """Get status of all robots"""
+        return [self.get_robot_status(r.robot_id) for r in self.robots]
+    
+    def find_path(self, start_idx: int, end_idx: int) -> List[int]:
+        """Find path through edges using BFS"""
+        if start_idx == end_idx:
+            return []
+            
+        queue = deque()
+        queue.append((start_idx, [start_idx]))  
+        visited = set()
+        visited.add(start_idx)
+        
+        while queue:
+            current_idx, path = queue.popleft()
+            
+            for lane in self.nav_graph["lanes"]:
+                if lane[0] == current_idx:
+                    neighbor = lane[1]
+                elif lane[1] == current_idx:  
+                    neighbor = lane[0]
+                else:
+                    continue
+                    
+                if neighbor == end_idx:
+                    return path + [neighbor]
+                    
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
+        
+        return [] 
+    
+    def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """
+        Generate smooth path points between two vertices
+        """
+        path_indices = PathFinder.find_path(
+            self.nav_graph,
+            start_idx,
+            end_idx
+        )
+        
+        if not path_indices:
+            return []
+
+        path_points = []
+        vertices = self.nav_graph["vertices"]
+        
+        for i in range(len(path_indices)-1):
+            start = vertices[path_indices[i]]
+            end = vertices[path_indices[i+1]]
+            
+            steps = max(3, int(self.distance(start, end) / 10)) 
+            
+            for j in range(steps + 1):
+                ratio = j / steps
+                x = start[0] + (end[0] - start[0]) * ratio
+                y = start[1] + (end[1] - start[1]) * ratio
+                path_points.append((x, y))
+        
+        return path_points
+    
+    def find_and_interpolate_path(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """Find path and interpolate points (combines both operations)"""
+        path_indices = PathFinder.find_path(
+            self.nav_graph,
+            start_idx,
+            end_idx
+        )
+        return self.calculate_path_along_edges(path_indices) if path_indices else []
+    
+    def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
+        """Thread-safe movement with proper destination handling"""
+        try:
+            while True:
+                if self.has_reached_destination(robot.position, target_pos):
+                    robot.set_status("idle")
+                    gui_update_callback(robot, "idle")
+                    break
+                    
+                path_indices = self.find_path_to_destination(robot.position, target_pos)
+                if not path_indices:
+                    robot.set_status("blocked")
+                    gui_update_callback(robot, "blocked")
+                    time.sleep(1)
+                    continue
+                    
+                if not self.traffic_manager.reserve_path(robot.robot_id, path_indices):
+                    robot.set_status("waiting")
+                    gui_update_callback(robot, "waiting")
+                    time.sleep(0.5)
+                    continue
+                    
+                path_points = self.calculate_path_along_edges(path_indices)
+                for point in path_points:
+                    if self.has_reached_destination(robot.position, target_pos):
+                        break
+                        
+                    robot.position = point
+                    robot.set_status("moving")
+                    gui_update_callback(robot, "moving")
+                    time.sleep(0.1)
+                    
+                self.traffic_manager.release_path(robot.robot_id, path_indices)
+                
+        except Exception as e:
+            robot.set_status("error")
+            gui_update_callback(robot, "error")
+            print(f"Movement error for {robot.robot_id}: {str(e)}")
+
     def calculate_path(self, start_pos: tuple, end_pos: tuple) -> List[tuple]:
         """Calculate path from start to end position"""
-        # Simple linear interpolation for demonstration
         path = []
         for i in range(self.navigation_steps + 1):
             x = start_pos[0] + (end_pos[0] - start_pos[0]) * (i/self.navigation_steps)
@@ -191,7 +345,6 @@ class FleetManager:
                     movement_logs.append(f"{robot.robot_id} cannot reach destination")
                     continue
                     
-                # Animate movement
                 for point in path_points:
                     robot.position = point
                     gui_callback(robot)
@@ -203,329 +356,7 @@ class FleetManager:
         
         self.robot_destinations.clear()
         return True, movement_logs
-
-    def move_all_robots_randomly(self) -> Tuple[bool, List[str]]:
-        """Move all robots to random vertices with proper status updates"""
-        if not self.nav_graph:
-            return False, ["No graph loaded"]
-            
-        movement_logs = []
-        for robot in self.robots:
-            current_idx = self.get_vertex_index(robot.position)
-            available_indices = [i for i in range(len(self.nav_graph["vertices"])) 
-                            if i != current_idx]
-            if available_indices:
-                next_idx = random.choice(available_indices)
-                next_vertex = self.nav_graph["vertices"][next_idx]
-                vertex_name = self.vertex_names[next_idx]
-                
-                # Update status before moving
-                if hasattr(robot, 'set_status'):
-                    robot.set_status("moving")
-                
-                robot.position = next_vertex
-                movement_logs.append(f"{robot.robot_id} moved to {vertex_name}")
-        
-        return True, movement_logs
-
-    def get_vertex_index(self, position: tuple) -> int:
-        """Find index of vertex by position coordinates with dimension safety"""
-        if not self.nav_graph:
-            return -1
-            
-        # Ensure position is 2D
-        pos_x = position[0]
-        pos_y = position[1] if len(position) > 1 else 0
-        
-        for idx, vertex in enumerate(self.nav_graph["vertices"]):
-            vertex_x = vertex[0]
-            vertex_y = vertex[1] if len(vertex) > 1 else 0
-            if (abs(vertex_x - pos_x) < 0.001 and 
-                abs(vertex_y - pos_y) < 0.001):
-                return idx
-        return -1
-
-    def get_vertex_name(self, vertex: tuple) -> str:
-        """Get name from vertex coordinates"""
-        idx = self.get_vertex_index(vertex)
-        return self.vertex_names.get(idx, "Unknown")
-
-    def get_all_vertex_names(self) -> Dict[int, str]:
-        """Get all vertex names"""
-        return self.vertex_names
-
-    def select_robot(self, position: tuple) -> Optional[Robot]:
-        """Select robot at given position"""
-        for robot in self.robots:
-            if (robot.position[0] == position[0] and 
-                robot.position[1] == position[1]):
-                self.selected_robot = robot
-                return robot
-        self.selected_robot = None
-        return None
-
-    def clear_all(self) -> str:
-        """Clear all robots and reset state"""
-        self.robots = []
-        self.robot_counter = 0
-        self.robot_destinations = {}
-        self.selected_robot = None
-        return "System reset complete"
-
-    def get_robot_status(self, robot_id: str) -> Optional[dict]:
-        """Get status of specific robot"""
-        robot = next((r for r in self.robots if r.robot_id == robot_id), None)
-        if robot:
-            return {
-                "id": robot.robot_id,
-                "position": robot.position,
-                "status": robot.status,
-                "vertex_name": self.get_vertex_name(robot.position)
-            }
-        return None
-
-    def get_all_robots_status(self) -> List[dict]:
-        """Get status of all robots"""
-        return [self.get_robot_status(r.robot_id) for r in self.robots]
     
-    def find_path(self, start_idx: int, end_idx: int) -> List[int]:
-        """Find path through edges using BFS"""
-        if start_idx == end_idx:
-            return []
-            
-        queue = deque()
-        queue.append((start_idx, [start_idx]))  # Store the full path
-        visited = set()
-        visited.add(start_idx)
-        
-        while queue:
-            current_idx, path = queue.popleft()
-            
-            # Get all connected vertices
-            for lane in self.nav_graph["lanes"]:
-                if lane[0] == current_idx:
-                    neighbor = lane[1]
-                elif lane[1] == current_idx:  # For undirected graphs
-                    neighbor = lane[0]
-                else:
-                    continue
-                    
-                if neighbor == end_idx:
-                    return path + [neighbor]
-                    
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append((neighbor, path + [neighbor]))
-        
-        return []  # No path found
-    
-    def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
-        """
-        Generate smooth path points between two vertices
-        Args:
-            start_idx: Starting vertex index
-            end_idx: Target vertex index
-        Returns:
-            List of (x,y) coordinates along the path
-        """
-        # Get the vertex path using PathFinder
-        path_indices = PathFinder.find_path(
-            self.nav_graph,
-            start_idx,
-            end_idx
-        )
-        
-        if not path_indices:
-            return []
-
-        path_points = []
-        vertices = self.nav_graph["vertices"]
-        
-        # Interpolate points between each vertex in the path
-        for i in range(len(path_indices)-1):
-            start = vertices[path_indices[i]]
-            end = vertices[path_indices[i+1]]
-            
-            # Calculate appropriate number of interpolation points
-            steps = max(3, int(self.distance(start, end) / 10))  # At least 3 points per edge
-            
-            # Generate interpolated points
-            for j in range(steps + 1):
-                ratio = j / steps
-                x = start[0] + (end[0] - start[0]) * ratio
-                y = start[1] + (end[1] - start[1]) * ratio
-                path_points.append((x, y))
-        
-        return path_points
-    
-    def distance(self, p1: tuple, p2: tuple) -> float:
-        """Calculate distance between two points"""
-        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
-    
-    def get_vertex_name_by_index(self, idx: int) -> str:
-        """Get vertex name by index"""
-        return self.vertex_names.get(idx, f"Vertex-{idx}")
-
-    def get_vertex_name_by_position(self, position: tuple) -> str:
-        """Get vertex name by position coordinates"""
-        idx = self.get_vertex_index(position)
-        return self.get_vertex_name_by_index(idx)
-
-    def get_vertex_index(self, position: tuple) -> int:
-        """Find index of vertex by position coordinates"""
-        if not self.nav_graph:
-            return -1
-            
-        for idx, vertex in enumerate(self.nav_graph["vertices"]):
-            if (abs(vertex[0] - position[0]) < 0.001 and 
-                abs(vertex[1] - position[1]) < 0.001):
-                return idx
-        return -1
-    
-    def on_vertex_click(self, vertex_idx):
-        """Handle vertex clicks to spawn robots"""
-        if not self.fleet_manager.nav_graph:
-            return
-            
-        robot, message = self.fleet_manager.spawn_robot(vertex_idx, self.canvas)
-        if robot:
-            self.add_history_entry(robot.robot_id, message)
-            self.prompt_destination(robot)
-            self.start_button.config(state=tk.NORMAL)
-
-    def on_canvas_click(self, event):
-        """Handle general canvas clicks for robot selection"""
-        if not self.fleet_manager.nav_graph or not self.fleet_manager.robots:
-            return
-            
-        # Find if a robot was clicked
-        for robot in self.fleet_manager.robots:
-            x, y = self.fleet_manager.get_canvas_coords(robot.position)
-            if ((event.x - x)**2 + (event.y - y)**2) <= (self.fleet_manager.vertex_radius**2):
-                self.select_robot(robot)
-                return
-            
-        # If no robot clicked, deselect
-        self.deselect_robot()
-
-    # Replace move_robot_concurrently with:
-    def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
-        """Generate interpolated points from existing vertex path"""
-        if not vertex_path:
-            return []
-            
-        path_points = []
-        vertices = self.nav_graph["vertices"]
-        
-        # Interpolate between each pair of vertices
-        for i in range(len(vertex_path)-1):
-            start = vertices[vertex_path[i]]
-            end = vertices[vertex_path[i+1]]
-            
-            steps = max(3, int(self.distance(start, end) / 10))
-            for j in range(steps + 1):
-                ratio = j / steps
-                x = start[0] + (end[0] - start[0]) * ratio
-                y = start[1] + (end[1] - start[1]) * ratio
-                path_points.append((x, y))
-        
-        
-        return path_points
-
-    def find_and_interpolate_path(self, start_idx: int, end_idx: int) -> List[tuple]:
-        """Find path and interpolate points (combines both operations)"""
-        path_indices = PathFinder.find_path(
-            self.nav_graph,
-            start_idx,
-            end_idx
-        )
-        return self.calculate_path_along_edges(path_indices) if path_indices else []
-
-# Update get_lane_status to use TrafficManager:
-    def get_lane_status(self, lane: tuple) -> str:
-        """Get traffic light status for visualization."""
-        return self.traffic_manager.get_lane_status(lane)
-    
-    def _path_to_lanes(self, path_indices: List[int]) -> List[tuple]:
-        """Convert path indices to lane tuples."""
-        if not path_indices or len(path_indices) < 2:
-            return []
-        return [(path_indices[i], path_indices[i+1]) 
-                for i in range(len(path_indices)-1)]
-
-
-    def start_concurrent_movement(self, gui_update_callback):
-        """Start all robot movements in separate threads"""
-        threads = []
-        for robot in self.robots:
-            if robot.robot_id in self.robot_destinations:
-                target = self.robot_destinations[robot.robot_id]
-                t = threading.Thread(
-                    target=self.move_robot_concurrently,
-                    args=(robot, target, gui_update_callback),
-                    daemon=True
-                )
-                threads.append(t)
-                t.start()
-        
-        # Optional: Keep track of threads if needed
-        self.threads = threads
-
-    def get_lane_status(self, lane: tuple) -> str:
-        """Get traffic light status for visualization."""
-        return self.traffic_manager.get_lane_status(lane)
-        
-
-    def update_visualization(self):
-        """Update lane colors for visualization."""
-        for lane in self.nav_graph.get("lanes", []):
-            status = self.get_lane_status(lane)
-            self.lane_status[lane] = status
-
-    def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
-        """Thread-safe movement with proper destination handling"""
-        try:
-            while True:
-                # 1. Check if reached destination
-                if self.has_reached_destination(robot.position, target_pos):
-                    robot.set_status("idle")
-                    gui_update_callback(robot, "idle")
-                    break
-                    
-                # 2. Find path
-                path_indices = self.find_path_to_destination(robot.position, target_pos)
-                if not path_indices:
-                    robot.set_status("blocked")
-                    gui_update_callback(robot, "blocked")
-                    time.sleep(1)
-                    continue
-                    
-                # 3. Reserve path
-                if not self.traffic_manager.reserve_path(robot.robot_id, path_indices):
-                    robot.set_status("waiting")
-                    gui_update_callback(robot, "waiting")
-                    time.sleep(0.5)
-                    continue
-                    
-                # 4. Move along path
-                path_points = self.calculate_path_along_edges(path_indices)
-                for point in path_points:
-                    if self.has_reached_destination(robot.position, target_pos):
-                        break
-                        
-                    robot.position = point
-                    robot.set_status("moving")
-                    gui_update_callback(robot, "moving")
-                    time.sleep(0.1)
-                    
-                # 5. Release path
-                self.traffic_manager.release_path(robot.robot_id, path_indices)
-                
-        except Exception as e:
-            robot.set_status("error")
-            gui_update_callback(robot, "error")
-            print(f"Movement error for {robot.robot_id}: {str(e)}")
-        
     def interpolate_path_points(self, vertex_path: List[int]) -> List[tuple]:
         """Convert vertex indices to smooth path points"""
         if not vertex_path or not self.nav_graph:
@@ -556,41 +387,10 @@ class FleetManager:
         )
         return self.interpolate_path_points(path_indices) if path_indices else []
 
-    # ... (keep all other existing methods)
 
     def distance(self, p1: tuple, p2: tuple) -> float:
         """Calculate Euclidean distance between two points"""
         return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
-
-    def get_lane_status(self, lane: tuple) -> str:
-        """Get traffic light status from traffic manager"""
-        return self.traffic_manager.get_lane_status(lane)
-
-    
-    def find_path_to_destination(self, current_pos, target_pos):
-        """Find path with congestion awareness"""
-        start_idx = self.get_vertex_index(current_pos)
-        end_idx = self.get_vertex_index(target_pos)
-        if start_idx == -1 or end_idx == -1:
-            return None
-        return self.traffic_manager.find_least_congested_path(
-            self.nav_graph, start_idx, end_idx)
-
-    def _has_reached_destination(self, current_pos, target_pos):
-        """Exact position matching"""
-        current = (round(current_pos[0]), round(current_pos[1]) if len(current_pos) > 1 else (round(current_pos[0]), 0))
-        target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 else (round(target_pos[0]), 0))
-        return current == target
-
-
-    def find_path_to_destination(self, current_pos, target_pos):
-        """Find path with congestion awareness"""
-        start_idx = self.get_vertex_index(current_pos)
-        end_idx = self.get_vertex_index(target_pos)
-        if start_idx == -1 or end_idx == -1:
-            return None
-        return self.traffic_manager.find_least_congested_path(
-            self.nav_graph, start_idx, end_idx)
     
     def _get_verified_new_destination(self, current_pos):
         """Safe destination selection"""
@@ -602,29 +402,104 @@ class FleetManager:
                     if i != current_idx]
         return self.nav_graph["vertices"][random.choice(available)] if available else current_pos
 
-    def get_robot_by_id(self, robot_id):
-        """Get robot by its ID"""
-        return next((r for r in self.robots if r.robot_id == robot_id), None)
+    ### TRAFFIC MANAGEMENT INTEGRATION 
 
-    def has_reached_destination(self, current_pos, target_pos):
-        """Public method for destination checking"""
-        return self._has_reached_destination(current_pos, target_pos)
+    def get_lane_status(self, lane: tuple) -> str:
+        """Get traffic light status for visualization."""
+        return self.traffic_manager.get_lane_status(lane)
     
-    def _has_reached_destination(self, current_pos, target_pos, threshold=0.05):
-        """Exact position matching with rounding"""
-        current = (round(current_pos[0], round(current_pos[1])) if len(current_pos) > 1 
-                 else (round(current_pos[0]), 0))
-        target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 
-                else (round(target_pos[0]), 0))
+    def _path_to_lanes(self, path_indices: List[int]) -> List[tuple]:
+        """Convert path indices to lane tuples."""
+        if not path_indices or len(path_indices) < 2:
+            return []
+        return [(path_indices[i], path_indices[i+1]) 
+                for i in range(len(path_indices)-1)]
+    
+    def find_path_to_destination(self, current_pos, target_pos):
+        """Find path with congestion awareness"""
+        start_idx = self.get_vertex_index(current_pos)
+        end_idx = self.get_vertex_index(target_pos)
+        if start_idx == -1 or end_idx == -1:
+            return None
+        return self.traffic_manager.find_least_congested_path(
+            self.nav_graph, start_idx, end_idx)
+    
+    ### VISUALIZATION 
+
+    def get_canvas_coords(self, vertex: tuple) -> tuple:
+        """Convert graph coordinates to canvas coordinates"""
+        return (
+            self.padding + (vertex[0] - self.min_x) * self.scale_x,
+            self.padding + (vertex[1] - self.min_y) * self.scale_y
+        )
+    
+    def update_visualization(self):
+        """Update lane colors for visualization."""
+        for lane in self.nav_graph.get("lanes", []):
+            status = self.get_lane_status(lane)
+            self.lane_status[lane] = status
+
+    def clear_path_reservations(self, robot_id):
+        """Clear all path reservations for a robot"""
+        if hasattr(self, 'traffic_manager'):
+            self.traffic_manager.release_all_for_robot(robot_id)
+            
+    ### UTILITY FUNCTION 
+
+    def distance(self, p1: tuple, p2: tuple) -> float:
+        """Calculate distance between two points"""
+        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
+    
+    def get_vertex_name_by_index(self, idx: int) -> str:
+        """Get vertex name by index"""
+        return self.vertex_names.get(idx, f"Vertex-{idx}")
+    
+    def _has_reached_destination(self, current_pos, target_pos):
+        """Exact position matching"""
+        current = (round(current_pos[0]), round(current_pos[1]) if len(current_pos) > 1 else (round(current_pos[0]), 0))
+        target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 else (round(target_pos[0]), 0))
         return current == target
     
-    def spawn_robot_threadsafe(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
-        """Thread-safe robot spawning"""
-        with threading.Lock():
-            robot, message = self.spawn_robot(vertex_idx, canvas)
-            if robot:
-                self._assign_initial_task(robot)
-            return robot, message
+    ### CONCURRENT MOVEMENT 
+
+    def start_concurrent_movement(self, gui_update_callback):
+        """Start all robot movements in separate threads"""
+        threads = []
+        for robot in self.robots:
+            if robot.robot_id in self.robot_destinations:
+                target = self.robot_destinations[robot.robot_id]
+                t = threading.Thread(
+                    target=self.move_robot_concurrently,
+                    args=(robot, target, gui_update_callback),
+                    daemon=True
+                )
+                threads.append(t)
+                t.start()
+        
+        self.threads = threads
+
+    def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
+        """Generate interpolated points from existing vertex path"""
+        if not vertex_path:
+            return []
+            
+        path_points = []
+        vertices = self.nav_graph["vertices"]
+        
+        for i in range(len(vertex_path)-1):
+            start = vertices[vertex_path[i]]
+            end = vertices[vertex_path[i+1]]
+            
+            steps = max(3, int(self.distance(start, end) / 10))
+            for j in range(steps + 1):
+                ratio = j / steps
+                x = start[0] + (end[0] - start[0]) * ratio
+                y = start[1] + (end[1] - start[1]) * ratio
+                path_points.append((x, y))
+        
+        
+        return path_points
+
 
     def _assign_initial_task(self, robot: Robot) -> None:
         """Assign first task to newly spawned robot"""
@@ -644,7 +519,58 @@ class FleetManager:
             daemon=True
         ).start()
 
-    def clear_path_reservations(self, robot_id):
-        """Clear all path reservations for a robot"""
-        if hasattr(self, 'traffic_manager'):
-            self.traffic_manager.release_all_for_robot(robot_id)
+    ### GET VERTEX 
+
+    def get_vertex_index(self, position: tuple) -> int:
+        """Find index of vertex by position coordinates with dimension safety"""
+        if not self.nav_graph:
+            return -1
+            
+        pos_x = position[0]
+        pos_y = position[1] if len(position) > 1 else 0
+        
+        for idx, vertex in enumerate(self.nav_graph["vertices"]):
+            vertex_x = vertex[0]
+            vertex_y = vertex[1] if len(vertex) > 1 else 0
+            if (abs(vertex_x - pos_x) < 0.001 and 
+                abs(vertex_y - pos_y) < 0.001):
+                return idx
+        return -1
+
+    def get_vertex_name(self, vertex: tuple) -> str:
+        """Get name from vertex coordinates"""
+        idx = self.get_vertex_index(vertex)
+        return self.vertex_names.get(idx, "Unknown")
+
+    def get_all_vertex_names(self) -> Dict[int, str]:
+        """Get all vertex names"""
+        return self.vertex_names
+    
+    def get_vertex_name_by_position(self, position: tuple) -> str:
+        """Get vertex name by position coordinates"""
+        idx = self.get_vertex_index(position)
+        return self.get_vertex_name_by_index(idx)
+
+    def on_vertex_click(self, vertex_idx):
+        """Handle vertex clicks to spawn robots"""
+        if not self.fleet_manager.nav_graph:
+            return
+            
+        robot, message = self.fleet_manager.spawn_robot(vertex_idx, self.canvas)
+        if robot:
+            self.add_history_entry(robot.robot_id, message)
+            self.prompt_destination(robot)
+            self.start_button.config(state=tk.NORMAL)
+
+    def has_reached_destination(self, current_pos, target_pos):
+        """Public method for destination checking"""
+        return self._has_reached_destination(current_pos, target_pos)
+    
+    def _has_reached_destination(self, current_pos, target_pos, threshold=0.05):
+        """Exact position matching with rounding"""
+        current = (round(current_pos[0], round(current_pos[1])) if len(current_pos) > 1 
+                 else (round(current_pos[0]), 0))
+        target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 
+                else (round(target_pos[0]), 0))
+        return current == target
+    
