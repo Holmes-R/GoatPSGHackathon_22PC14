@@ -45,3 +45,12 @@ python main.py
 
         🔴 Blocked (Red)
 
+#### 2. Robot Spawing 
+
+##### Interactive GUI Spawning
+
+    Users can spawn robots by clicking on any vertex.
+
+- Clicking a vertex opens a popup to spawn a robot .
+- Each robot gets a unique ID (e.g., "R1", "R2") .
+- If a vertex is occupied, a warning is displayed .
