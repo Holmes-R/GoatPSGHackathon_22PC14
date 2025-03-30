@@ -96,3 +96,12 @@ python main.py
 -  Threaded movement ensures smooth concurrent operations.
 
 - The system dynamically adjusts to new spawns and path changes.
+
+#### 6. Occupancy and Conflict Notifications
+
+##### 6.1 User Alerts
+
+    The system warns users when a path is blocked.
+
+
+-  Visual cues (flashing red) for conflicts.
