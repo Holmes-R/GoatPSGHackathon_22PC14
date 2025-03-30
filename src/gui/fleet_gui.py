@@ -35,6 +35,8 @@ class FleetManagementApp:
         self.setup_vertex_occupancy_tracker()
         self.initialize_core_components()
         self.initialize_state()
+        self.last_update_time = 0
+        self.update_interval = 0.033
 
     def initialize_core_components(self):
         self.fleet_manager = FleetManager()
@@ -199,6 +201,7 @@ class FleetManagementApp:
             self.move_button.config(state=tk.DISABLED)
             self.start_button.config(state=tk.DISABLED)
             self.deselect_robot()
+    
     
    ### CORE OPERATIONS 
  
@@ -534,6 +537,9 @@ class FleetManagementApp:
     
     def safe_gui_update(self, robot, status):
         """Thread-safe GUI update that also updates occupancy"""
+        current_time = time.time()
+        if current_time - self.last_update_time < self.update_interval:
+            return
         def update():
             robot.status = status
             robot.update_visualization()
@@ -622,6 +628,18 @@ class FleetManagementApp:
             robot.set_status("error")
             gui_update_callback(robot, "error")
             print(f"Movement error for {robot.robot_id}: {str(e)}")
+    
+    def batch_update_robots(self):
+        """Update all robot positions in a single canvas operation"""
+        self.canvas.delete("robot")  # Clear all robots at once
+        
+        for robot in self.fleet_manager.robots:
+            x, y = self._get_canvas_coords(robot.position)
+            self.canvas.create_oval(x-10, y-10, x+10, y+10,
+                                fill=self.status_colors.get(robot.status, "blue"),
+                                tags=("robot", f"robot_{robot.robot_id}"))
+            self.canvas.create_text(x, y-15, text=robot.robot_id,
+                                font=("Arial", 8), tags=("robot_label", f"label_{robot.robot_id}"))
     
     ### Helper Functions
     

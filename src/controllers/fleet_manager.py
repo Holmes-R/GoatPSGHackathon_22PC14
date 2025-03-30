@@ -9,6 +9,8 @@ from collections import defaultdict
 from src.controllers.traffic_manager import TrafficManager
 from src.utils.helper import PathFinder
 import math
+from concurrent.futures import ThreadPoolExecutor
+
 import tkinter as tk
 class FleetManager:
     def __init__(self):
@@ -21,7 +23,10 @@ class FleetManager:
         self.selected_robot: Optional[Robot] = None
         self.navigation_delay = 2.0  # seconds between steps
         self.navigation_steps = 10
-        self.traffic_manager = TrafficManager(self)        
+        self.traffic_manager = TrafficManager(self)     
+        self.path_cache = {}   
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.vertex_occupancy = {}
 
         # Visualization states
         self.lane_status = {}
@@ -209,6 +214,9 @@ class FleetManager:
     
     def find_path(self, start_idx: int, end_idx: int) -> List[int]:
         """Find path through edges using BFS"""
+        cache_key = (start_idx, end_idx)
+        if cache_key in self.path_cache:
+            return self.path_cache[cache_key]
         if start_idx == end_idx:
             return []
             
@@ -234,8 +242,8 @@ class FleetManager:
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append((neighbor, path + [neighbor]))
-        
-        return [] 
+        self.path_cache[cache_key] = path
+        return path
     
     def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
         """
@@ -443,7 +451,7 @@ class FleetManager:
         """Clear all path reservations for a robot"""
         if hasattr(self, 'traffic_manager'):
             self.traffic_manager.release_all_for_robot(robot_id)
-            
+
     ### UTILITY FUNCTION 
 
     def distance(self, p1: tuple, p2: tuple) -> float:
@@ -464,19 +472,16 @@ class FleetManager:
 
     def start_concurrent_movement(self, gui_update_callback):
         """Start all robot movements in separate threads"""
-        threads = []
+        futures = []
         for robot in self.robots:
             if robot.robot_id in self.robot_destinations:
                 target = self.robot_destinations[robot.robot_id]
-                t = threading.Thread(
-                    target=self.move_robot_concurrently,
-                    args=(robot, target, gui_update_callback),
-                    daemon=True
+                future = self.executor.submit(
+                    self.move_robot_concurrently,
+                    robot, target, gui_update_callback
                 )
-                threads.append(t)
-                t.start()
-        
-        self.threads = threads
+                futures.append(future)
+        return futures
 
     def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
         """Generate interpolated points from existing vertex path"""
@@ -573,4 +578,15 @@ class FleetManager:
         target = (round(target_pos[0]), round(target_pos[1]) if len(target_pos) > 1 
                 else (round(target_pos[0]), 0))
         return current == target
+    
+    def update_vertex_occupancy(self):
+        """More efficient occupancy tracking"""
+        new_occupancy = defaultdict(set)
+        
+        for robot in self.robots:
+            vertex_idx = self.get_vertex_index(robot.position)
+            if vertex_idx != -1:
+                new_occupancy[vertex_idx].add(robot.robot_id)
+        
+        self.vertex_occupancy = new_occupancy
     

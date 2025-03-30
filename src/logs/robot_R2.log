@@ -1,1 +1,2 @@
-[2025-03-30 19:48:48.794210] RobotID:R2 | Action:SPAWN | Path:Vertex_7 | Status:SUCCESS | Battery:100%
+[2025-03-30 20:37:36.173636] RobotID:R2 | Action:SPAWN | Path:Vertex_3 | Status:SUCCESS | Battery:100%
+[2025-03-30 20:37:38.816742] RobotID:R2 | Action:STATUS_WAITING | BATTERY:100

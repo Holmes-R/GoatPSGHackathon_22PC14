@@ -160,24 +160,43 @@ class TrafficManager:
                 return "red"
             else:
                 return "yellow"
-            
+    
+    def _distance(self, p1: tuple, p2: tuple) -> float:
+        """Calculate Euclidean distance between two points"""
+        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
     ### CONGESTION DETECTION AND ROBOT PRIORITY 
 
+    # In TrafficManager class
     def detect_collision(self, robot_positions: Dict[str, Tuple[float, float]], threshold: float = 2.0) -> List[Tuple[str, str]]:
-        """
-        Detect potential collisions between robots.
-        Returns list of robot pairs that are too close.
-        """
-        collisions = []
-        robots = list(robot_positions.items())
+        """Optimized collision detection using spatial hashing"""
+        grid_size = threshold * 2
+        spatial_grid = defaultdict(list)
         
-        for i in range(len(robots)):
-            id1, pos1 = robots[i]
-            for j in range(i+1, len(robots)):
-                id2, pos2 = robots[j]
-                distance = ((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2)**0.5
-                if distance < threshold:
-                    collisions.append((id1, id2))
+        # Bin robots into grid cells
+        for robot_id, pos in robot_positions.items():
+            grid_x = int(pos[0] / grid_size)
+            grid_y = int(pos[1] / grid_size)
+            spatial_grid[(grid_x, grid_y)].append((robot_id, pos))
+        
+        collisions = []
+        # Only check robots in same or adjacent cells
+        for (grid_x, grid_y), robots in spatial_grid.items():
+            # Check within cell
+            for i in range(len(robots)):
+                id1, pos1 = robots[i]
+                for j in range(i+1, len(robots)):
+                    id2, pos2 = robots[j]
+                    if self._distance(pos1, pos2) < threshold:
+                        collisions.append((id1, id2))
+            
+            # Check adjacent cells
+            for dx, dy in [(1,0), (0,1), (1,1), (-1,1)]:
+                neighbor_key = (grid_x + dx, grid_y + dy)
+                if neighbor_key in spatial_grid:
+                    for (id1, pos1) in robots:
+                        for (id2, pos2) in spatial_grid[neighbor_key]:
+                            if self._distance(pos1, pos2) < threshold:
+                                collisions.append((id1, id2))
         
         return collisions
     
