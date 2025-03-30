@@ -7,35 +7,53 @@ import heapq
 from src.utils.helper import PathFinder
 
 class TrafficManager:
-    def __init__(self):
-        self.lane_occupancy = defaultdict(list)  # {lane: [robot_ids]}
+    def __init__(self, fleet_manager=None):
+        self.lane_occupancy = defaultdict(list)
+        self.fleet_manager = fleet_manager
         self.reserved_lanes = {}  # {lane: robot_id}
         self.waiting_queues = defaultdict(deque)  # {lane: deque(robot_ids)}
         self.congestion_data = defaultdict(float)  # {lane: congestion_score}
         self.robot_timeouts = {}  # {robot_id: timeout_timestamp}
         self.lock = threading.Lock()
         self.priority_weights = defaultdict(float)  # {robot_id: priority_weight}
+        self.robot_destinations = {}
         
-    def reserve_path(self, robot_id: str, path_indices: List[int]) -> bool:
-        """
-        Attempt to reserve all lanes in a path atomically.
-        Returns True if successful, False otherwise.
-        """
+    def reserve_path(self, robot_id, path_indices):
+        """Safe path reservation with checks"""
+        if not hasattr(self, 'fleet_manager'):
+            return False
+            
+        robot = self.fleet_manager.get_robot_by_id(robot_id)
+        if not robot:
+            return False
+            
+        target_pos = self.fleet_manager.robot_destinations.get(robot_id)
+        if not target_pos:
+            return False
+            
+        if self.fleet_manager.has_reached_destination(robot.position, target_pos):
+            return False
+            
         lanes = self._path_to_lanes(path_indices)
-        
-        # First check if all lanes are available
         with self.lock:
+            # Check all lanes first
             for lane in lanes:
                 if lane in self.reserved_lanes and self.reserved_lanes[lane] != robot_id:
                     return False
-        
-        # If all available, reserve them
-        with self.lock:
+            # Reserve all lanes
             for lane in lanes:
                 self.reserved_lanes[lane] = robot_id
-                self._update_congestion(lane)
             return True
-    
+
+
+    def release_path(self, robot_id: str, path_indices: List[int]):
+        """Release all lanes in a path"""
+        lanes = self._path_to_lanes(path_indices)
+        with self.lock:
+            for lane in lanes:
+                if self.reserved_lanes.get(lane) == robot_id:
+                    del self.reserved_lanes[lane]
+        
     def try_reserve_lane(self, robot_id: str, lane: Tuple[int, int], timeout_sec: float = 5.0) -> bool:
         """
         Attempt to reserve a single lane with timeout.
@@ -52,22 +70,6 @@ class TrafficManager:
             self.robot_timeouts[robot_id] = time.time() + timeout_sec
             return False
     
-    def release_path(self, robot_id: str, path_indices: List[int]):
-        """
-        Release all lanes in a path and notify next robots in queue.
-        """
-        lanes = self._path_to_lanes(path_indices)
-        with self.lock:
-            for lane in lanes:
-                if self.reserved_lanes.get(lane) == robot_id:
-                    del self.reserved_lanes[lane]
-                    
-                    # Notify next robot in queue if available
-                    if self.waiting_queues[lane]:
-                        next_robot = self.waiting_queues[lane].popleft()
-                        if self._check_robot_timeout(next_robot):
-                            self.reserved_lanes[lane] = next_robot
-    
     def _path_to_lanes(self, path_indices: List[int]) -> List[Tuple[int, int]]:
         """Convert path indices to lane tuples."""
         if not path_indices or len(path_indices) < 2:
@@ -83,15 +85,14 @@ class TrafficManager:
         return time.time() < self.robot_timeouts.get(robot_id, float('inf'))
     
     def get_lane_status(self, lane: Tuple[int, int]) -> str:
-        """
-        Get traffic light status for visualization.
-        Returns "green" if available, "yellow" if reserved but no queue, "red" if reserved with queue.
-        """
+        """Enhanced lane status with automatic updates"""
         with self.lock:
             if lane not in self.reserved_lanes:
-
                 return "green"
-            return "yellow" if not self.waiting_queues[lane] else "red"
+            elif self.waiting_queues[lane]:
+                return "red"
+            else:
+                return "yellow"
     
     def find_least_congested_path(self, nav_graph: Dict, start_idx: int, end_idx: int) -> List[int]:
         """
@@ -200,3 +201,39 @@ class TrafficManager:
             end_idx,
             self.congestion_data
         )
+    
+    def reserve_lane(self, robot_id: str, lane: tuple) -> bool:
+        """Attempt to reserve a single lane"""
+        with self.lock:
+            if lane not in self.reserved_lanes:
+                self.reserved_lanes[lane] = robot_id
+                return True
+            return False
+
+    def release_lane(self, robot_id: str, lane: tuple):
+        """Release a lane and notify next robot"""
+        with self.lock:
+            if self.reserved_lanes.get(lane) == robot_id:
+                del self.reserved_lanes[lane]
+                if self.waiting_queues[lane]:
+                    next_robot = self.waiting_queues[lane].popleft()
+                    self.reserved_lanes[lane] = next_robot
+                    return next_robot
+        return None
+    
+    def wait_for_lane(self, robot_id: str, lane: tuple, timeout=5.0):
+        """Wait for a lane to become available"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.reserve_lane(robot_id, lane):
+                return True
+            time.sleep(0.1)
+        return False
+    
+    def get_robot_by_id(self, robot_id):
+        """Public method to access robots"""
+        return next((r for r in self.robots if r.robot_id == robot_id), None)
+
+    def has_reached_destination(self, current_pos, target_pos):
+        """Public destination check"""
+        return self._has_reached_destination(current_pos, target_pos)

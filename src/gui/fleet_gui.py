@@ -15,14 +15,19 @@ class FleetManagementApp:
             "moving": "green",
             "waiting": "yellow",
             "blocked": "red",
-            "idle": "blue"
+            "idle": "blue",
+            "charging": "purple",
+            "error": "orange"
         }
         
-        #self.setup_ui()
-        
-        # UI Setup
+        # Initialize main window first
         self.setup_main_window()
+        
+        # Then setup UI components (which depends on main window)
         self.setup_ui_components()
+        
+        # Finally setup the status legend (which depends on right_panel)
+        self.setup_status_legend()
         
         # Visualization parameters
         self.padding = 50
@@ -30,6 +35,45 @@ class FleetManagementApp:
         self.selected_robot = None
         self.after_id = None
         self.canvas.delete("path")
+
+    def setup_main_window(self):
+        """Configure main window layout"""
+        self.main_frame = tk.Frame(self.master)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.canvas = tk.Canvas(self.main_frame, bg="white")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Create right panel here
+        self.right_panel = tk.Frame(self.main_frame, width=300, bg="#f0f0f0")
+        self.right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
+
+    def setup_status_legend(self):
+        """Add visual legend for status indicators"""
+        legend_frame = tk.Frame(self.right_panel, bg="#f0f0f0")
+        legend_frame.pack(fill=tk.X, pady=10, padx=5)
+        
+        tk.Label(legend_frame, text="Lane Status Legend:", 
+                font=("Arial", 10, "bold"), bg="#f0f0f0").pack(anchor=tk.W)
+                
+        statuses = [
+            ("Free", self.status_colors["moving"]),
+            ("Lane in Use", self.status_colors["waiting"]),
+            ("Blocked", self.status_colors["blocked"]),
+            ("Error", self.status_colors["error"])
+        ]
+        
+        for text, color in statuses:
+            frame = tk.Frame(legend_frame, bg="#f0f0f0")
+            frame.pack(fill=tk.X, pady=2)
+            
+            # Create a colored circle for the legend
+            canvas = tk.Canvas(frame, width=20, height=20, bg="#f0f0f0", 
+                             highlightthickness=0)
+            canvas.pack(side=tk.LEFT)
+            canvas.create_oval(2, 2, 18, 18, fill=color, outline="black")
+            
+            tk.Label(frame, text=text, bg="#f0f0f0").pack(side=tk.LEFT, padx=5)
 
     def setup_ui(self):
         """Initialize the user interface."""
@@ -47,17 +91,7 @@ class FleetManagementApp:
         self.status_tree = ttk.Treeview(control_frame, columns=("Robot", "Status"))
         self.status_tree.pack(fill=tk.BOTH, expand=True)
         
-    def setup_main_window(self):
-        """Configure main window layout"""
-        self.main_frame = tk.Frame(self.master)
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        self.canvas = tk.Canvas(self.main_frame, bg="white")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        self.right_panel = tk.Frame(self.main_frame, width=450, bg="#f0f0f0")
-        self.right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=10)
-
+    
     def setup_ui_components(self):
         """Initialize all UI components"""
         # Control buttons
@@ -155,7 +189,7 @@ class FleetManagementApp:
         self.canvas.bind("<Button-1>", self.on_canvas_click)
     
     def draw_environment(self):
-        """Draw the navigation graph on canvas"""
+        """Draw the navigation graph with vertices and lanes"""
         self.canvas.delete("all")
         if not self.fleet_manager.nav_graph:
             return
@@ -163,12 +197,7 @@ class FleetManagementApp:
         vertices = self.fleet_manager.nav_graph["vertices"]
         lanes = self.fleet_manager.nav_graph["lanes"]
         
-        # Update scaling factors
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        self.fleet_manager._calculate_scaling_factors(canvas_width, canvas_height)
-        
-        # Draw lanes with traffic light colors
+        # First draw all lanes
         for lane in lanes:
             from_idx, to_idx = lane[0], lane[1]
             from_x, from_y = self.fleet_manager.get_canvas_coords(vertices[from_idx])
@@ -176,39 +205,43 @@ class FleetManagementApp:
             
             # Get lane status and color
             status = self.fleet_manager.get_lane_status((from_idx, to_idx))
-            color = {"green": "#00aa00", "yellow": "#ffcc00", "red": "#ff0000"}[status]
+            color = {"green": "#00aa00", "yellow": "#ffcc00", "red": "#ff0000"}.get(status, "#cccccc")
             
-            self.canvas.create_line(from_x, from_y, to_x, to_y, width=3, fill=color, tags="lane")
+            self.canvas.create_line(
+                from_x, from_y, to_x, to_y, 
+                width=3, fill=color, tags="lane"
+            )
         
-        # Draw vertices with names and click bindings
+        # Then draw all vertices (so they appear on top of lanes)
         for idx, vertex in enumerate(vertices):
             x, y = self.fleet_manager.get_canvas_coords(vertex)
-            color = self.fleet_manager.vertex_colors[idx]
-            vertex_name = self.fleet_manager.vertex_names[idx]
+            color = self.fleet_manager.vertex_colors.get(idx, "#888888")
+            vertex_name = self.fleet_manager.vertex_names.get(idx, f"V{idx}")
             
-            # Draw vertex
+            # Draw vertex circle
             vertex_tag = f"vertex_{idx}"
-            self.canvas.create_oval(x-10, y-10, x+10, y+10,
-                                fill=color, outline="black", width=2,
-                                tags=vertex_tag)
+            self.canvas.create_oval(
+                x-10, y-10, x+10, y+10,
+                fill=color, outline="black", width=2,
+                tags=vertex_tag
+            )
             
             # Draw vertex label
-            self.canvas.create_text(x, y-25,
-                                text=vertex_name,
-                                font=("Arial", 10, "bold"))
+            self.canvas.create_text(
+                x, y-25,
+                text=vertex_name,
+                font=("Arial", 10, "bold"),
+                tags=f"label_{idx}"
+            )
             
             # Bind click event
             self.canvas.tag_bind(vertex_tag, "<Button-1>",
-                            lambda e, idx=idx: self.on_vertex_click(idx))
-        
-        # Bind general canvas click
-        self.canvas.bind("<Button-1>", self.on_canvas_click)
+                lambda e, idx=idx: self.on_vertex_click(idx))
         
         # Redraw any existing robots
         for robot in self.fleet_manager.robots:
             if hasattr(robot, 'spawn'):
                 robot.spawn()
-
     def highlight_collisions(self):
         """Highlight any detected collisions between robots"""
         robot_positions = {robot.robot_id: robot.position for robot in self.fleet_manager.robots}
@@ -291,6 +324,10 @@ class FleetManagementApp:
 
     def update_robot_display(self, robot):
         """Update robot visualization with offset for multiple robots at the same vertex"""
+        if robot.status == "idle":
+            color = "#808080"  # Distinctive idle color
+            self.canvas.itemconfig(robot.gui_id, fill=color)
+            self.status_tree.item(robot.robot_id, values=(robot.robot_id, "IDLE AT DESTINATION"))
         x, y = self._get_canvas_coords(robot.position)
         
         # Find all robots at this exact position
@@ -334,46 +371,62 @@ class FleetManagementApp:
         self.master.update()
 
     def safe_gui_update(self, robot, status):
-        """Thread-safe GUI update"""
+        """Thread-safe GUI update with status effects"""
         def update():
             robot.status = status
             robot.update_visualization()
-            self.canvas.delete("waiting_highlight")
+            
+            self.draw_environment()
+        # Redraw robots on top
+            for r in self.fleet_manager.robots:
+                r.update_visualization()
+
+            # Add visual effects based on status
+            x, y = self.fleet_manager.get_canvas_coords(robot.position)
+            self.canvas.delete(f"status_{robot.robot_id}")
+            
             if status == "waiting":
-                x, y = self.fleet_manager.get_canvas_coords(robot.position)
-                self.canvas.create_oval(x-15, y-15, x+15, y+15,
-                                      outline="yellow", width=3,
-                                      tags="waiting_highlight")
+                self.canvas.create_oval(
+                    x-15, y-15, x+15, y+15,
+                    outline="#FFFF00", width=2, dash=(5,2),
+                    tags=f"status_{robot.robot_id}"
+                )
+            elif status == "blocked":
+                self.canvas.create_oval(
+                    x-15, y-15, x+15, y+15,
+                    outline="#FF0000", width=3,
+                    tags=f"status_{robot.robot_id}"
+                )
+            elif status == "moving":
+                self.canvas.create_line(
+                    x, y, x+20, y,
+                    arrow=tk.LAST, fill="#00FF00", width=2,
+                    tags=f"status_{robot.robot_id}"
+                )
+        
         self.master.after(0, update) 
     
     def start_movement(self):
-        """Start concurrent movement on button click"""
-        # Clear previous state
-        self.canvas.delete("waiting_highlight")
+        """Start concurrent movement of all robots"""
+        self.canvas.delete("status_*")  # Clear old status indicators
         
         # Check for collisions before starting
         self.highlight_collisions()
         
-        # Rest of the method remains the same
-        for t in self.threads:
-            t.join(timeout=0.1)
-        self.threads = []
-        
+        # Start all robots in separate threads
+        threads = []
         for robot in self.fleet_manager.robots:
             if robot.robot_id in self.fleet_manager.robot_destinations:
+                target = self.fleet_manager.robot_destinations[robot.robot_id]
                 t = threading.Thread(
                     target=self.fleet_manager.move_robot_concurrently,
-                    args=(
-                        robot,
-                        self.fleet_manager.robot_destinations[robot.robot_id],
-                        self.safe_gui_update
-                    ),
+                    args=(robot, target, self.safe_gui_update),
                     daemon=True
                 )
-                self.threads.append(t)
+                threads.append(t)
                 t.start()
-
-        self.start_button.config(state=tk.DISABLED)
+        
+        self.threads = threads
         self.add_history_entry("System", "Started concurrent movement")
 
     def on_closing(self):
