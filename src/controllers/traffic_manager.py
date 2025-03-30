@@ -34,14 +34,43 @@ class TrafficManager:
                         self.release_lane(reserved_lane)
                 return False
         return True
+    
+    def verify_lane_statuses(self):
+        """Debug method to verify all lane reservations match actual robot positions"""
+        active_robots = {r.robot_id for r in self.fleet_manager.robots 
+                        if r.status != "idle"}
+        
+        lanes_to_release = []
+        
+        for lane, robot_id in list(self.lane_reservations.items()):
+            if robot_id not in active_robots:
+                lanes_to_release.append(lane)
+        
+        for lane in lanes_to_release:
+            self.release_lane(lane)
+        
+        return len(lanes_to_release)
 
     def release_path(self, robot_id, path_indices):
-        """Release all lanes in a path"""
+        """Completely release all lanes in a path with verification"""
+        if not path_indices or len(path_indices) < 2:
+            return False
+
+        lanes = []
         for i in range(len(path_indices)-1):
             from_idx = path_indices[i]
             to_idx = path_indices[i+1]
-            lane = (min(from_idx, to_idx), max(from_idx, to_idx))
-            self.release_lane(lane)
+            lanes.append((min(from_idx, to_idx), max(from_idx, to_idx)))
+
+        with self.lock:
+            released_count = 0
+            for lane in lanes:
+                if lane in self.lane_reservations and self.lane_reservations[lane] == robot_id:
+                    del self.lane_reservations[lane]
+                    released_count += 1
+                    self.congestion_data[lane] = max(0, self.congestion_data.get(lane, 0) - 0.1)
+
+            return released_count == len(lanes)
 
     def reserve_lane(self, lane, robot_id):
         """Reserve a lane for a specific robot"""
@@ -166,22 +195,18 @@ class TrafficManager:
         return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
     ### CONGESTION DETECTION AND ROBOT PRIORITY 
 
-    # In TrafficManager class
     def detect_collision(self, robot_positions: Dict[str, Tuple[float, float]], threshold: float = 2.0) -> List[Tuple[str, str]]:
         """Optimized collision detection using spatial hashing"""
         grid_size = threshold * 2
         spatial_grid = defaultdict(list)
         
-        # Bin robots into grid cells
         for robot_id, pos in robot_positions.items():
             grid_x = int(pos[0] / grid_size)
             grid_y = int(pos[1] / grid_size)
             spatial_grid[(grid_x, grid_y)].append((robot_id, pos))
         
         collisions = []
-        # Only check robots in same or adjacent cells
         for (grid_x, grid_y), robots in spatial_grid.items():
-            # Check within cell
             for i in range(len(robots)):
                 id1, pos1 = robots[i]
                 for j in range(i+1, len(robots)):
@@ -189,7 +214,6 @@ class TrafficManager:
                     if self._distance(pos1, pos2) < threshold:
                         collisions.append((id1, id2))
             
-            # Check adjacent cells
             for dx, dy in [(1,0), (0,1), (1,1), (-1,1)]:
                 neighbor_key = (grid_x + dx, grid_y + dy)
                 if neighbor_key in spatial_grid:

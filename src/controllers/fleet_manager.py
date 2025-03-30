@@ -290,6 +290,13 @@ class FleetManager:
             while True:
                 if self.has_reached_destination(robot.position, target_pos):
                     robot.set_status("idle")
+                    if hasattr(robot, 'path_history') and robot.path_history:
+                        path_released = self.traffic_manager.release_path(robot.robot_id, robot.path_history)
+                        if not path_released:
+                            print(f"Warning: Incomplete path release for {robot.robot_id}")
+                        robot.path_history = []
+                    
+                    # Force immediate GUI update
                     gui_update_callback(robot, "idle")
                     break
                     

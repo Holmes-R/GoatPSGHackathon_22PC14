@@ -37,6 +37,7 @@ class FleetManagementApp:
         self.initialize_state()
         self.last_update_time = 0
         self.update_interval = 0.033
+        self.start_periodic_checks() 
 
     def initialize_core_components(self):
         self.fleet_manager = FleetManager()
@@ -198,7 +199,7 @@ class FleetManagementApp:
             message = self.fleet_manager.clear_all()
             self.history_tree.delete(*self.history_tree.get_children())
             self.add_history_entry("System", message)
-            self.move_button.config(state=tk.DISABLED)
+            #self.move_button.config(state=tk.DISABLED)
             self.start_button.config(state=tk.DISABLED)
             self.deselect_robot()
     
@@ -229,6 +230,7 @@ class FleetManagementApp:
         DEFAULT_COLOR = "#cccccc"
         vertices = self.fleet_manager.nav_graph["vertices"]
         lanes = self.fleet_manager.nav_graph["lanes"]
+        traffic_mgr = getattr(self.fleet_manager, 'traffic_manager', None)
         
         for lane in lanes:
             from_idx, to_idx = lane[0], lane[1]
@@ -238,14 +240,12 @@ class FleetManagementApp:
             lane_key = (min(from_idx, to_idx), max(from_idx, to_idx))
             lane_tag = f"lane_{lane_key[0]}_{lane_key[1]}"
             
-            is_reserved = hasattr(self.fleet_manager, 'traffic_manager') and \
-                        lane_key in self.fleet_manager.traffic_manager.lane_reservations
-            
-            color = IN_USE_COLOR if is_reserved else FREE_COLOR
+            is_reserved = traffic_mgr and lane_key in traffic_mgr.lane_reservations
+            color = "#00aa00" if not is_reserved else "#ffcc00" 
             
             self.canvas.create_line(from_x, from_y, to_x, to_y,
                                 width=3, fill=color, tags=lane_tag)
-        
+            
         for idx, vertex in enumerate(vertices):
             x, y = self.fleet_manager.get_canvas_coords(vertex)
             base_color = self.fleet_manager.vertex_colors.get(idx, "#888888")
@@ -543,6 +543,7 @@ class FleetManagementApp:
         def update():
             robot.status = status
             robot.update_visualization()
+            self.update_vertex_occupancy()
             
             self.draw_environment()
             
@@ -551,6 +552,11 @@ class FleetManagementApp:
 
             x, y = self.fleet_manager.get_canvas_coords(robot.position)
             self.canvas.delete(f"status_{robot.robot_id}")
+            self.canvas.create_oval(x-10, y-10, x+10, y+10,
+                              fill=self.status_colors.get(status, "blue"),
+                              tags=f"robot_{robot.robot_id}")
+            if status == "idle":
+                self.canvas.after(100, self.force_green_lanes)
             
             if status == "waiting":
                 self.canvas.create_oval(
@@ -572,6 +578,24 @@ class FleetManagementApp:
                 )
         
         self.master.after(0, update)
+    
+    def force_green_lanes(self):
+        """Force all unreserved lanes to green"""
+        if not hasattr(self.fleet_manager, 'nav_graph'):
+            return
+        
+        lanes = self.fleet_manager.nav_graph.get("lanes", [])
+        traffic_mgr = getattr(self.fleet_manager, 'traffic_manager', None)
+        
+        for lane in lanes:
+            from_idx, to_idx = lane[0], lane[1]
+            lane_key = (min(from_idx, to_idx), max(from_idx, to_idx))
+            lane_tag = f"lane_{lane_key[0]}_{lane_key[1]}"
+            
+            is_reserved = traffic_mgr and lane_key in traffic_mgr.lane_reservations
+            
+            color = "#00aa00" if not is_reserved else "#ffcc00"
+            self.canvas.itemconfig(lane_tag, fill=color)
 
     def _get_vertex_occupant(self, vertex_idx):
         if not hasattr(self.fleet_manager, 'nav_graph'):
@@ -640,7 +664,34 @@ class FleetManagementApp:
                                 tags=("robot", f"robot_{robot.robot_id}"))
             self.canvas.create_text(x, y-15, text=robot.robot_id,
                                 font=("Arial", 8), tags=("robot_label", f"label_{robot.robot_id}"))
-    
+            
+
+    def start_periodic_checks(self, interval=1000):
+        """Start periodic checks for lane status accuracy"""
+        self.verify_lane_statuses()
+        self.master.after(interval, lambda: self.start_periodic_checks(interval))
+
+    def verify_lane_statuses(self):
+        """Ensure lane colors match actual reservations"""
+        if not hasattr(self.fleet_manager, 'traffic_manager'):
+            return
+            
+        reserved_lanes = set(self.fleet_manager.traffic_manager.lane_reservations.keys())
+        
+        for lane_tag in self.canvas.find_withtag("lane"):
+            tags = self.canvas.gettags(lane_tag)
+            if len(tags) >= 2 and tags[0] == "lane":
+                parts = tags[1].split('_')
+                if len(parts) == 3:
+                    lane_key = (int(parts[1]), int(parts[2]))
+                    current_color = self.canvas.itemcget(lane_tag, "fill")
+                    
+                    should_be_reserved = lane_key in reserved_lanes
+                    correct_color = "#ffcc00" if should_be_reserved else "#00aa00"
+                    
+                    if current_color != correct_color:
+                        self.canvas.itemconfig(lane_tag, fill=correct_color)
+        
     ### Helper Functions
     
     def find_nearest_available_vertex(self, start_vertex_idx):
