@@ -18,6 +18,7 @@ class FleetManagementApp:
         self.vertex_radius = 15
         self.selected_robot = None
         self.after_id = None
+        self.canvas.delete("path")
         
     def setup_main_window(self):
         """Configure main window layout"""
@@ -105,7 +106,20 @@ class FleetManagementApp:
                 self.move_button.config(state=tk.NORMAL)
             else:
                 self.add_history_entry("System", message)
-
+    def setup_click_handlers(self):
+        """Set up all canvas click handlers"""
+        # Clear existing bindings
+        self.canvas.tag_unbind("vertex", "<Button-1>")
+        self.canvas.unbind("<Button-1>")
+        
+        # Bind vertex clicks
+        if hasattr(self.fleet_manager, 'vertex_names'):
+            for idx in self.fleet_manager.vertex_names:
+                self.canvas.tag_bind(f"vertex_{idx}", "<Button-1>", 
+                                lambda e, idx=idx: self.on_vertex_click(idx))
+        
+        # Bind general canvas clicks (for robot selection)
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
     def draw_environment(self):
         """Draw the navigation graph on canvas"""
         self.canvas.delete("all")
@@ -115,7 +129,7 @@ class FleetManagementApp:
         vertices = self.fleet_manager.nav_graph["vertices"]
         lanes = self.fleet_manager.nav_graph["lanes"]
         
-        # Update scaling factors based on current canvas size
+        # Update scaling factors
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
         self.fleet_manager._calculate_scaling_factors(canvas_width, canvas_height)
@@ -127,7 +141,7 @@ class FleetManagementApp:
             to_x, to_y = self.fleet_manager.get_canvas_coords(vertices[to_idx])
             self.canvas.create_line(from_x, from_y, to_x, to_y, fill="black", width=2)
         
-        # Draw vertices
+        # Draw vertices with names and click bindings
         for idx, vertex in enumerate(vertices):
             x, y = self.fleet_manager.get_canvas_coords(vertex)
             color = self.fleet_manager.vertex_colors[idx]
@@ -135,51 +149,26 @@ class FleetManagementApp:
             
             # Draw vertex
             vertex_tag = f"vertex_{idx}"
-            self.canvas.create_oval(x-self.fleet_manager.vertex_radius, 
-                                y-self.fleet_manager.vertex_radius,
-                                x+self.fleet_manager.vertex_radius, 
-                                y+self.fleet_manager.vertex_radius,
+            self.canvas.create_oval(x-10, y-10, x+10, y+10,
                                 fill=color, outline="black", width=2,
                                 tags=vertex_tag)
             
             # Draw vertex label
-            self.canvas.create_text(x, y-self.fleet_manager.vertex_radius-15, 
-                                text=vertex_name, 
+            self.canvas.create_text(x, y-25,
+                                text=vertex_name,
                                 font=("Arial", 10, "bold"))
             
             # Bind click event
-            self.canvas.tag_bind(vertex_tag, "<Button-1>", 
+            self.canvas.tag_bind(vertex_tag, "<Button-1>",
                             lambda e, idx=idx: self.on_vertex_click(idx))
+        
+        # Bind general canvas click
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
         
         # Redraw any existing robots
         for robot in self.fleet_manager.robots:
-            if robot.robot_id in self.fleet_manager.robot_destinations:
-                start = robot.position
-                end = self.fleet_manager.robot_destinations[robot.robot_id]
-                path = self.fleet_manager.calculate_path(start, end)
-                
-                # Draw path line
-                path_coords = []
-                for point in path:
-                    x, y = self.fleet_manager.get_canvas_coords(point)
-                    path_coords.extend([x, y])
-                
-                if len(path_coords) > 2:
-                    self.canvas.create_line(
-                        *path_coords,
-                        fill="gray",
-                        dash=(5, 3),
-                        tags="path"
-                    )
-            x, y = self.fleet_manager.get_canvas_coords(robot.position)
-            robot.robot_obj = self.canvas.create_oval(x-10, y-10, x+10, y+10,
-                                                    fill=robot.color, 
-                                                    outline="black", width=2)
-            robot.label_obj = self.canvas.create_text(x, y-15,
-                                                    text=robot.robot_id,
-                                                    font=("Arial", 8, "bold"))
-        
-        self.canvas.bind("<Button-1>", self.on_canvas_click)
+            if hasattr(robot, 'spawn'):
+                robot.spawn()
 
     def _get_canvas_coords(self, vertex):
         """Convert graph coordinates to canvas coordinates"""
@@ -190,6 +179,10 @@ class FleetManagementApp:
 
     def on_vertex_click(self, vertex_idx):
         """Handle vertex clicks to spawn robots"""
+        if not self.fleet_manager.nav_graph:
+            return
+            
+        # Spawn new robot at clicked vertex
         robot, message = self.fleet_manager.spawn_robot(vertex_idx, self.canvas)
         if robot:
             self.add_history_entry(robot.robot_id, message)
@@ -308,6 +301,8 @@ class FleetManagementApp:
             self.move_button.config(state=tk.DISABLED)
             self.start_button.config(state=tk.DISABLED)
             self.deselect_robot()
+
+    
 
 if __name__ == "__main__":
     root = tk.Tk()

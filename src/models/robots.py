@@ -1,8 +1,9 @@
 class Robot:
-    def __init__(self, robot_id, position, canvas, vertex_colors, padding, min_x, min_y, scale_x, scale_y):
+    def __init__(self, robot_id, position, fleet_manager, canvas, vertex_colors, padding, min_x, min_y, scale_x, scale_y):
         self.robot_id = robot_id
         self.position = position
         self.canvas = canvas
+        self.fleet_manager = fleet_manager  
         self.vertex_colors = vertex_colors  # Store vertex_colors
         self.padding = padding
         self.min_x = min_x
@@ -14,6 +15,7 @@ class Robot:
         self.label_obj = None
         self.path = []
         self.current_step = 0
+        
 
     def spawn(self):
         """Create visual representation of the robot"""
@@ -77,3 +79,8 @@ class Robot:
             "error": "orange"
         }
         self.canvas.itemconfig(self.robot_obj, fill=color_map.get(status, "green"))
+
+    def _get_vertex_color(self):
+        """Get color from current vertex"""
+        idx = self.fleet_manager.get_vertex_index(self.position)
+        return self.fleet_manager.vertex_colors.get(idx, "#00FF00")

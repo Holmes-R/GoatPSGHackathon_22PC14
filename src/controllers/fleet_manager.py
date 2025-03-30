@@ -3,6 +3,8 @@ import random
 from typing import Dict, List, Optional, Tuple
 from src.models.robots import Robot
 import time
+from collections import deque
+
 class FleetManager:
     def __init__(self):
         self.robots: List[Robot] = []
@@ -114,7 +116,8 @@ class FleetManager:
             robot_id=robot_id,
             position=vertex,
             canvas=canvas,
-            vertex_colors=self.vertex_colors,  # Pass vertex_colors
+            vertex_colors=self.vertex_colors,
+              fleet_manager=self,   # Pass vertex_colors
             padding=self.padding,
             min_x=self.min_x,
             min_y=self.min_y,
@@ -154,26 +157,35 @@ class FleetManager:
         return path
 
     def start_movement(self, gui_callback) -> Tuple[bool, List[str]]:
-        """Move all robots to their destinations with visualization"""
+        """Move robots along graph edges"""
         if not self.robot_destinations:
             return False, ["No destinations set"]
         
         movement_logs = []
         for robot in self.robots:
             if robot.robot_id in self.robot_destinations:
-                target = self.robot_destinations[robot.robot_id]
-                path = self.calculate_path(robot.position, target)
+                start_idx = self.get_vertex_index(robot.position)
+                end_idx = self.get_vertex_index(self.robot_destinations[robot.robot_id])
                 
-                # Animate movement
-                for step, new_pos in enumerate(path):
-                    robot.position = new_pos
-                    gui_callback(robot)  # Update GUI
-                    time.sleep(self.navigation_delay/self.navigation_steps)
+                if start_idx == -1 or end_idx == -1:
+                    movement_logs.append(f"{robot.robot_id}: Invalid start/end position")
+                    continue
                     
-                    if step == len(path)-1:
-                        movement_logs.append(
-                            f"{robot.robot_id} reached {self.get_vertex_name(target)}"
-                        )
+                path_points = self.calculate_path_along_edges(start_idx, end_idx)
+                
+                if not path_points:
+                    movement_logs.append(f"{robot.robot_id} cannot reach destination")
+                    continue
+                    
+                # Animate movement
+                for point in path_points:
+                    robot.position = point
+                    gui_callback(robot)
+                    time.sleep(self.navigation_delay/len(path_points))
+                
+                movement_logs.append(
+                    f"{robot.robot_id} reached {self.get_vertex_name_by_index(end_idx)}"
+                )
         
         self.robot_destinations.clear()
         return True, movement_logs
@@ -248,3 +260,103 @@ class FleetManager:
     def get_all_robots_status(self) -> List[dict]:
         """Get status of all robots"""
         return [self.get_robot_status(r.robot_id) for r in self.robots]
+    def find_path(self, start_idx: int, end_idx: int) -> List[int]:
+        """Find path through edges using BFS"""
+        if start_idx == end_idx:
+            return []
+            
+        queue = deque()
+        queue.append((start_idx, []))
+        visited = set()
+        
+        while queue:
+            current_idx, path = queue.popleft()
+            if current_idx == end_idx:
+                return path + [current_idx]
+                
+            if current_idx in visited:
+                continue
+            visited.add(current_idx)
+            
+            # Get all connected vertices
+            for lane in self.nav_graph["lanes"]:
+                if lane[0] == current_idx:
+                    queue.append((lane[1], path + [current_idx]))
+                elif lane[1] == current_idx:  # For undirected graphs
+                    queue.append((lane[0], path + [current_idx]))
+        
+        return []  # No path found
+    
+    def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """Generate path points following graph edges"""
+        vertex_path = self.find_path(start_idx, end_idx)
+        if not vertex_path:
+            return []
+            
+        path_points = []
+        vertices = self.nav_graph["vertices"]
+        
+        # Interpolate points between each vertex in the path
+        for i in range(len(vertex_path)-1):
+            start = vertices[vertex_path[i]]
+            end = vertices[vertex_path[i+1]]
+            
+            # Add points along this edge
+            steps = max(3, int(self.distance(start, end) / 10))  # At least 3 points per edge
+            for j in range(steps + 1):
+                ratio = j / steps
+                x = start[0] + (end[0] - start[0]) * ratio
+                y = start[1] + (end[1] - start[1]) * ratio
+                path_points.append((x, y))
+        
+        return path_points
+    
+    def distance(self, p1: tuple, p2: tuple) -> float:
+        """Calculate distance between two points"""
+        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
+    
+    def get_vertex_name_by_index(self, idx: int) -> str:
+        """Get vertex name by index"""
+        return self.vertex_names.get(idx, f"Vertex-{idx}")
+
+    def get_vertex_name_by_position(self, position: tuple) -> str:
+        """Get vertex name by position coordinates"""
+        idx = self.get_vertex_index(position)
+        return self.get_vertex_name_by_index(idx)
+
+    def get_vertex_index(self, position: tuple) -> int:
+        """Find index of vertex by position coordinates"""
+        if not self.nav_graph:
+            return -1
+            
+        for idx, vertex in enumerate(self.nav_graph["vertices"]):
+            if (abs(vertex[0] - position[0]) < 0.001 and 
+                abs(vertex[1] - position[1]) < 0.001):
+                return idx
+        return -1
+    
+    def on_vertex_click(self, vertex_idx):
+        """Handle vertex clicks to spawn robots"""
+        if not self.fleet_manager.nav_graph:
+            return
+            
+        robot, message = self.fleet_manager.spawn_robot(vertex_idx, self.canvas)
+        if robot:
+            self.add_history_entry(robot.robot_id, message)
+            self.prompt_destination(robot)
+            self.start_button.config(state=tk.NORMAL)
+
+    def on_canvas_click(self, event):
+        """Handle general canvas clicks for robot selection"""
+        if not self.fleet_manager.nav_graph or not self.fleet_manager.robots:
+            return
+            
+        # Find if a robot was clicked
+        for robot in self.fleet_manager.robots:
+            x, y = self.fleet_manager.get_canvas_coords(robot.position)
+            if ((event.x - x)**2 + (event.y - y)**2) <= (self.fleet_manager.vertex_radius**2):
+                self.select_robot(robot)
+                return
+            
+        # If no robot clicked, deselect
+        self.deselect_robot()
