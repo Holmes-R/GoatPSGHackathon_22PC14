@@ -105,3 +105,22 @@ python main.py
 
 
 -  Visual cues (flashing red) for conflicts.
+
+
+#### 7. Logging & Monitoring
+
+##### 7.1 Detailed Logging
+
+    All robot activities are logged for tracking.
+
+
+-  Log File: robot_<ROBOT_ID>.log records:
+
+    - Spawn events
+    - Robot ID 
+    - Action 
+    - Path 
+    - Status 
+    - Battery Life 
+
+- GUI Log Panel: Real-time updates in a scrollable history.
