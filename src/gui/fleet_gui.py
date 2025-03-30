@@ -3,12 +3,22 @@ from tkinter import filedialog, ttk, messagebox, simpledialog
 from datetime import datetime
 from src.controllers.fleet_manager import FleetManager
 import threading
+import math
+
 class FleetManagementApp:
     def __init__(self, master):
         self.master = master
         self.master.title("Fleet Management System")
         self.fleet_manager = FleetManager()
         self.threads = [] 
+        self.status_colors = {
+            "moving": "green",
+            "waiting": "yellow",
+            "blocked": "red",
+            "idle": "blue"
+        }
+        
+        #self.setup_ui()
         
         # UI Setup
         self.setup_main_window()
@@ -20,6 +30,22 @@ class FleetManagementApp:
         self.selected_robot = None
         self.after_id = None
         self.canvas.delete("path")
+
+    def setup_ui(self):
+        """Initialize the user interface."""
+        self.canvas = tk.Canvas(self.master, width=800, height=600, bg="white")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Control panel
+        control_frame = tk.Frame(self.master)
+        control_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        tk.Button(control_frame, text="Start Movement", 
+                 command=self.start_movement).pack(pady=10)
+        
+        # Status display
+        self.status_tree = ttk.Treeview(control_frame, columns=("Robot", "Status"))
+        self.status_tree.pack(fill=tk.BOTH, expand=True)
         
     def setup_main_window(self):
         """Configure main window layout"""
@@ -54,6 +80,12 @@ class FleetManagementApp:
         self.clear_button = tk.Button(self.button_frame, text="Clear Logs", 
                                     command=self.clear_logs, **btn_style)
         self.clear_button.pack(fill=tk.X, pady=3)
+        
+        # Status display
+        self.status_tree = ttk.Treeview(self.right_panel, columns=("Robot", "Status"))
+        self.status_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.status_tree.heading("Robot", text="Robot")
+        self.status_tree.heading("Status", text="Status")
         
         # History display
         self.setup_history_panel()
@@ -121,6 +153,7 @@ class FleetManagementApp:
         
         # Bind general canvas clicks (for robot selection)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
+    
     def draw_environment(self):
         """Draw the navigation graph on canvas"""
         self.canvas.delete("all")
@@ -135,12 +168,17 @@ class FleetManagementApp:
         canvas_height = self.canvas.winfo_height()
         self.fleet_manager._calculate_scaling_factors(canvas_width, canvas_height)
         
-        # Draw lanes
+        # Draw lanes with traffic light colors
         for lane in lanes:
             from_idx, to_idx = lane[0], lane[1]
             from_x, from_y = self.fleet_manager.get_canvas_coords(vertices[from_idx])
             to_x, to_y = self.fleet_manager.get_canvas_coords(vertices[to_idx])
-            self.canvas.create_line(from_x, from_y, to_x, to_y, fill="black", width=2)
+            
+            # Get lane status and color
+            status = self.fleet_manager.get_lane_status((from_idx, to_idx))
+            color = {"green": "#00aa00", "yellow": "#ffcc00", "red": "#ff0000"}[status]
+            
+            self.canvas.create_line(from_x, from_y, to_x, to_y, width=3, fill=color, tags="lane")
         
         # Draw vertices with names and click bindings
         for idx, vertex in enumerate(vertices):
@@ -171,6 +209,32 @@ class FleetManagementApp:
             if hasattr(robot, 'spawn'):
                 robot.spawn()
 
+    def highlight_collisions(self):
+        """Highlight any detected collisions between robots"""
+        robot_positions = {robot.robot_id: robot.position for robot in self.fleet_manager.robots}
+        collisions = self.fleet_manager.traffic_manager.detect_collision(robot_positions)
+        
+        self.canvas.delete("collision_highlight")
+        
+        for robot1_id, robot2_id in collisions:
+            robot1 = next(r for r in self.fleet_manager.robots if r.robot_id == robot1_id)
+            robot2 = next(r for r in self.fleet_manager.robots if r.robot_id == robot2_id)
+            
+            x1, y1 = self._get_canvas_coords(robot1.position)
+            x2, y2 = self._get_canvas_coords(robot2.position)
+            
+            # Draw a line between colliding robots
+            self.canvas.create_line(x1, y1, x2, y2, 
+                                fill="red", width=2, dash=(5,2),
+                                tags="collision_highlight")
+            
+            # Highlight both robots
+            self.canvas.create_oval(x1-15, y1-15, x1+15, y1+15,
+                                outline="red", width=3,
+                                tags="collision_highlight")
+            self.canvas.create_oval(x2-15, y2-15, x2+15, y2+15,
+                                outline="red", width=3,
+                                tags="collision_highlight")
     def _get_canvas_coords(self, vertex):
         """Convert graph coordinates to canvas coordinates"""
         return (
@@ -189,6 +253,8 @@ class FleetManagementApp:
             self.add_history_entry(robot.robot_id, message)
             self.prompt_destination(robot)
             self.start_button.config(state=tk.NORMAL)
+        else:
+            self.add_history_entry("System", message)
 
     def prompt_destination(self, robot):
         """Prompt user to select destination for a robot"""
@@ -224,9 +290,48 @@ class FleetManagementApp:
                  command=assign_destination).pack(pady=5)
 
     def update_robot_display(self, robot):
-        """Callback for updating robot visualization"""
-        robot.update_visualization()
-        self.master.update()  # Refresh GUI
+        """Update robot visualization with offset for multiple robots at the same vertex"""
+        x, y = self._get_canvas_coords(robot.position)
+        
+        # Find all robots at this exact position
+        same_pos_robots = [r for r in self.fleet_manager.robots 
+                        if r.position == robot.position]
+        
+        # Calculate position in the group
+        index = same_pos_robots.index(robot)
+        
+        # Calculate offset (spiral pattern)
+        radius = 15
+        angle = index * (2 * 3.14159 / 6)  # Adjust the divisor for more/less robots
+        offset_x = radius * math.cos(angle)
+        offset_y = radius * math.sin(angle)
+        
+        if not hasattr(robot, 'gui_id'):
+            robot.gui_id = self.canvas.create_oval(
+                x-10+offset_x, y-10+offset_y,
+                x+10+offset_x, y+10+offset_y,
+                fill=self.status_colors.get(robot.status, "blue"),
+                tags="robot"
+            )
+            # Add robot ID label
+            robot.label_id = self.canvas.create_text(
+                x+offset_x, y+offset_y-15,
+                text=robot.robot_id,
+                font=("Arial", 8)
+            )
+        else:
+            self.canvas.coords(
+                robot.gui_id,
+                x-10+offset_x, y-10+offset_y,
+                x+10+offset_x, y+10+offset_y
+            )
+            self.canvas.coords(
+                robot.label_id,
+                x+offset_x, y+offset_y-15
+            )
+            self.canvas.itemconfig(robot.gui_id, fill=self.status_colors.get(robot.status, "blue"))
+        
+        self.master.update()
 
     def safe_gui_update(self, robot, status):
         """Thread-safe GUI update"""
@@ -245,11 +350,15 @@ class FleetManagementApp:
         """Start concurrent movement on button click"""
         # Clear previous state
         self.canvas.delete("waiting_highlight")
+        
+        # Check for collisions before starting
+        self.highlight_collisions()
+        
+        # Rest of the method remains the same
         for t in self.threads:
             t.join(timeout=0.1)
         self.threads = []
         
-        # Start movement threads
         for robot in self.fleet_manager.robots:
             if robot.robot_id in self.fleet_manager.robot_destinations:
                 t = threading.Thread(
@@ -259,12 +368,11 @@ class FleetManagementApp:
                         self.fleet_manager.robot_destinations[robot.robot_id],
                         self.safe_gui_update
                     ),
-                    daemon=True  # Thread will exit when main program exits
+                    daemon=True
                 )
                 self.threads.append(t)
                 t.start()
-        
-        # Update UI
+
         self.start_button.config(state=tk.DISABLED)
         self.add_history_entry("System", "Started concurrent movement")
 
@@ -273,7 +381,7 @@ class FleetManagementApp:
         for t in self.threads:
             t.join(timeout=0.1)
         self.master.destroy()
-        
+
     def move_robots(self):
         """Move all robots to random vertices"""
         success, messages = self.fleet_manager.move_all_robots_randomly()
@@ -331,6 +439,25 @@ class FleetManagementApp:
             self.start_button.config(state=tk.DISABLED)
             self.deselect_robot()
 
+    def update_robot_status(self, robot, status):
+        """Update robot visualization."""
+        x, y = self.fleet_manager.get_canvas_coords(robot.position)  # Changed from self.fleet
+        color = self.status_colors[status]
+        
+        # Rest of the method remains the same
+        if not hasattr(robot, 'gui_id'):
+            robot.gui_id = self.canvas.create_oval(x-10, y-10, x+10, y+10, fill=color)
+        else:
+            self.canvas.itemconfig(robot.gui_id, fill=color)
+            self.canvas.coords(robot.gui_id, x-10, y-10, x+10, y+10)
+        
+        # Update status display
+        for item in self.status_tree.get_children():
+            if self.status_tree.item(item, "values")[0] == robot.robot_id:
+                self.status_tree.item(item, values=(robot.robot_id, status))
+                break
+        else:
+            self.status_tree.insert("", "end", values=(robot.robot_id, status))
  
 
     

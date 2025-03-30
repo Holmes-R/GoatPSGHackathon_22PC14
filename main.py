@@ -3,12 +3,13 @@ from pydantic import BaseModel
 import json
 from io import BytesIO
 from typing import List, Dict
-
+from src.controllers.traffic_manager import TrafficManager
+traffic_manager = TrafficManager()
 app = FastAPI()
 
 # Example of robot data model
 class Robot(BaseModel):
-    robot_id: int
+    robot_id: str
     position: tuple
     status: str = "waiting"
 
@@ -42,3 +43,20 @@ async def spawn_robot(robot: Robot):
 @app.get("/get_robots/")
 async def get_robots():
     return {"robots": [robot.dict() for robot in robots]}
+
+
+@app.get("/get_collisions/")
+async def get_collisions(threshold: float = 2.0):
+    robot_positions = {robot.robot_id: robot.position for robot in robots}
+    collisions = traffic_manager.detect_collision(robot_positions, threshold)
+    return {"collisions": collisions}
+
+@app.get("/get_lane_status/{lane_from}/{lane_to}")
+async def get_lane_status(lane_from: int, lane_to: int):
+    status = traffic_manager.get_lane_status((lane_from, lane_to))
+    return {"status": status}
+
+@app.post("/set_robot_priority/{robot_id}")
+async def set_robot_priority(robot_id: str, priority: float):
+    traffic_manager.set_robot_priority(robot_id, priority)
+    return {"message": f"Priority for robot {robot_id} set to {priority}"}

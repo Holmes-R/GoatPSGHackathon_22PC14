@@ -6,7 +6,8 @@ import time
 from collections import deque
 import threading
 from collections import defaultdict
-
+from src.controllers.traffic_manager import TrafficManager
+from src.utils.helper import PathFinder
 class FleetManager:
     def __init__(self):
         self.robots: List[Robot] = []
@@ -18,8 +19,11 @@ class FleetManager:
         self.selected_robot: Optional[Robot] = None
         self.navigation_delay = 2.0  # seconds between steps
         self.navigation_steps = 10
-        self.lane_occupancy = defaultdict(list)
-        self.lock = threading.Lock()
+        self.traffic_manager = TrafficManager()
+        
+
+        # Visualization states
+        self.lane_status = {}
         
         # Visualization parameters
         self.padding: int = 50
@@ -107,21 +111,20 @@ class FleetManager:
 
 
     def spawn_robot(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
-        """Spawn a new robot at specified vertex"""
+        """Spawn a new robot at the specified vertex (allows multiple robots per vertex)"""
         if not self.nav_graph or vertex_idx >= len(self.nav_graph["vertices"]):
             return None, "Invalid vertex index"
-
+        
         self.robot_counter += 1
-        robot_id = f"R{self.robot_counter}"
+        robot_id = f"R{self.robot_counter}"  # Unique ID for each robot
         vertex = self.nav_graph["vertices"][vertex_idx]
-        vertex_name = self.vertex_names[vertex_idx]
         
         robot = Robot(
             robot_id=robot_id,
             position=vertex,
             canvas=canvas,
             vertex_colors=self.vertex_colors,
-              fleet_manager=self,   # Pass vertex_colors
+            fleet_manager=self,
             padding=self.padding,
             min_x=self.min_x,
             min_y=self.min_y,
@@ -129,9 +132,9 @@ class FleetManager:
             scale_y=self.scale_y
         )
         
-        robot.spawn()
-        self.robots.append(robot)
-        return robot, f"Spawned at {vertex_name}"
+        robot.spawn()  # Ensure this method handles the initial position
+        self.robots.append(robot)  # Add robot to the list
+        return robot, f"Spawned at {self.vertex_names[vertex_idx]}"
 
     def set_robot_destination(self, robot_id: str, vertex_idx: int) -> Tuple[bool, str]:
         """Set destination for a specific robot"""
@@ -264,6 +267,7 @@ class FleetManager:
     def get_all_robots_status(self) -> List[dict]:
         """Get status of all robots"""
         return [self.get_robot_status(r.robot_id) for r in self.robots]
+    
     def find_path(self, start_idx: int, end_idx: int) -> List[int]:
         """Find path through edges using BFS"""
         if start_idx == end_idx:
@@ -295,21 +299,37 @@ class FleetManager:
         
         return []  # No path found
     
-    def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
-        """Generate path points following graph edges"""
-        if not vertex_path:
+    def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """
+        Generate smooth path points between two vertices
+        Args:
+            start_idx: Starting vertex index
+            end_idx: Target vertex index
+        Returns:
+            List of (x,y) coordinates along the path
+        """
+        # Get the vertex path using PathFinder
+        path_indices = PathFinder.find_path(
+            self.nav_graph,
+            start_idx,
+            end_idx
+        )
+        
+        if not path_indices:
             return []
-            
+
         path_points = []
         vertices = self.nav_graph["vertices"]
         
         # Interpolate points between each vertex in the path
-        for i in range(len(vertex_path)-1):
-            start = vertices[vertex_path[i]]
-            end = vertices[vertex_path[i+1]]
+        for i in range(len(path_indices)-1):
+            start = vertices[path_indices[i]]
+            end = vertices[path_indices[i+1]]
             
-            # Add points along this edge
+            # Calculate appropriate number of interpolation points
             steps = max(3, int(self.distance(start, end) / 10))  # At least 3 points per edge
+            
+            # Generate interpolated points
             for j in range(steps + 1):
                 ratio = j / steps
                 x = start[0] + (end[0] - start[0]) * ratio
@@ -368,62 +388,54 @@ class FleetManager:
         # If no robot clicked, deselect
         self.deselect_robot()
 
-    def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
-        """Threaded movement for a single robot"""
-        start_idx = self.get_vertex_index(robot.position)
-        end_idx = self.get_vertex_index(target_pos)
-        
-        if start_idx == -1 or end_idx == -1:
-            gui_update_callback(robot, "error")
-            return
-
-        path_indices = self.find_path(start_idx, end_idx)
-        if not path_indices:
-            gui_update_callback(robot, "blocked")
-            return
+    # Replace move_robot_concurrently with:
+    def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
+        """Generate interpolated points from existing vertex path"""
+        if not vertex_path:
+            return []
             
-        path_points = self.calculate_path_along_edges(path_indices)
+        path_points = []
+        vertices = self.nav_graph["vertices"]
         
-        # Try to reserve the path
-        with self.lock:
-            if not self.reserve_path(robot.robot_id, path_indices):
-                gui_update_callback(robot, "waiting")
-                return
-
-        # Execute movement
-        for point in path_points:
-            robot.position = point
-            gui_update_callback(robot, "moving")
-            time.sleep(0.3)  # Adjust speed as needed
-
-        # Release the path
-        with self.lock:
-            self.release_path(robot.robot_id, path_indices)
-            gui_update_callback(robot, "idle")
-
-    def reserve_path(self, robot_id, path_indices):
-        """Attempt to reserve all lanes in a path"""
-        # Convert vertex indices to lane tuples
-        lanes = [(path_indices[i], path_indices[i+1]) for i in range(len(path_indices)-1)]
+        # Interpolate between each pair of vertices
+        for i in range(len(vertex_path)-1):
+            start = vertices[vertex_path[i]]
+            end = vertices[vertex_path[i+1]]
+            
+            steps = max(3, int(self.distance(start, end) / 10))
+            for j in range(steps + 1):
+                ratio = j / steps
+                x = start[0] + (end[0] - start[0]) * ratio
+                y = start[1] + (end[1] - start[1]) * ratio
+                path_points.append((x, y))
         
-        # Check if any lane is occupied
-        for lane in lanes:
-            if self.lane_occupancy[lane]:
-                return False
-                
-        # Reserve all lanes
-        for lane in lanes:
-            self.lane_occupancy[lane].append(robot_id)
-        return True
+        
+        return path_points
 
-    def release_path(self, robot_id, path_indices):
-        """Release all lanes in a path"""
-        lanes = [(path_indices[i], path_indices[i+1]) for i in range(len(path_indices)-1)]
-        for lane in lanes:
-            if robot_id in self.lane_occupancy[lane]:
-                self.lane_occupancy[lane].remove(robot_id)
+    def find_and_interpolate_path(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """Find path and interpolate points (combines both operations)"""
+        path_indices = PathFinder.find_path(
+            self.nav_graph,
+            start_idx,
+            end_idx
+        )
+        return self.calculate_path_along_edges(path_indices) if path_indices else []
+
+# Update get_lane_status to use TrafficManager:
+    def get_lane_status(self, lane: tuple) -> str:
+        """Get traffic light status for visualization."""
+        return self.traffic_manager.get_lane_status(lane)
+    
+    def _path_to_lanes(self, path_indices: List[int]) -> List[tuple]:
+        """Convert path indices to lane tuples."""
+        if not path_indices or len(path_indices) < 2:
+            return []
+        return [(path_indices[i], path_indices[i+1]) 
+                for i in range(len(path_indices)-1)]
+
 
     def start_concurrent_movement(self, gui_update_callback):
+        
         """Launch all robot movements in separate threads"""
         threads = []
         for robot in self.robots:
@@ -437,3 +449,104 @@ class FleetManager:
                 t.start()
         
         return threads
+
+    def get_lane_status(self, lane: tuple) -> str:
+        """Get traffic light status for visualization."""
+        return self.traffic_manager.get_lane_status(lane)
+        
+
+    def update_visualization(self):
+        """Update lane colors for visualization."""
+        for lane in self.nav_graph.get("lanes", []):
+            status = self.get_lane_status(lane)
+            self.lane_status[lane] = status
+
+
+    def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
+        """Enhanced movement with lane reservation and path following"""
+        start_idx = self.get_vertex_index(robot.position)
+        end_idx = self.get_vertex_index(target_pos)
+        
+        if start_idx == -1 or end_idx == -1:
+            gui_update_callback(robot, "error")
+            return
+
+        # Find least congested path
+        path_indices = self.traffic_manager.find_least_congested_path(
+            self.nav_graph, start_idx, end_idx)
+        
+        if not path_indices:
+            gui_update_callback(robot, "blocked")
+            return
+            
+        # Attempt to reserve path
+        attempt_count = 0
+        while attempt_count < 3:
+            if self.traffic_manager.reserve_path(robot.robot_id, path_indices):
+                break
+                
+            if time.time() > self.traffic_manager.robot_timeouts.get(robot.robot_id, float('inf')):
+                path_indices = self.traffic_manager.find_least_congested_path(
+                    self.nav_graph, start_idx, end_idx)
+                if not path_indices:
+                    gui_update_callback(robot, "blocked")
+                    return
+                attempt_count += 1
+                continue
+                
+            gui_update_callback(robot, "waiting")
+            time.sleep(0.5)
+        else:
+            gui_update_callback(robot, "blocked")
+            return
+
+        # Execute movement
+        path_points = self.interpolate_path_points(path_indices)
+        for point in path_points:
+            robot.position = point
+            gui_update_callback(robot, "moving")
+            time.sleep(0.5)
+
+        # Release lanes
+        self.traffic_manager.release_path(robot.robot_id, path_indices)
+        gui_update_callback(robot, "idle")
+
+    def interpolate_path_points(self, vertex_path: List[int]) -> List[tuple]:
+        """Convert vertex indices to smooth path points"""
+        if not vertex_path or not self.nav_graph:
+            return []
+            
+        path_points = []
+        vertices = self.nav_graph["vertices"]
+        
+        for i in range(len(vertex_path)-1):
+            start = vertices[vertex_path[i]]
+            end = vertices[vertex_path[i+1]]
+            steps = max(3, int(self.distance(start, end) / 10))
+            
+            for j in range(steps + 1):
+                ratio = j / steps
+                x = start[0] + (end[0] - start[0]) * ratio
+                y = start[1] + (end[1] - start[1]) * ratio
+                path_points.append((x, y))
+                
+        return path_points
+
+    def find_and_interpolate_path(self, start_idx: int, end_idx: int) -> List[tuple]:
+        """Combined pathfinding and interpolation"""
+        path_indices = PathFinder.find_path(
+            self.nav_graph,
+            start_idx,
+            end_idx
+        )
+        return self.interpolate_path_points(path_indices) if path_indices else []
+
+    # ... (keep all other existing methods)
+
+    def distance(self, p1: tuple, p2: tuple) -> float:
+        """Calculate Euclidean distance between two points"""
+        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
+
+    def get_lane_status(self, lane: tuple) -> str:
+        """Get traffic light status from traffic manager"""
+        return self.traffic_manager.get_lane_status(lane)
