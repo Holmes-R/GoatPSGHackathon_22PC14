@@ -125,3 +125,14 @@ python main.py
     - Battery Life 
 
 - GUI Log Panel: Real-time updates in a scrollable history.
+
+
+
+###  Important Libraries Used 
+
+- Tkinder
+- os 
+- threading 
+- time 
+- heapq
+
