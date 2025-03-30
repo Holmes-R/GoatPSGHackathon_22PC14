@@ -4,6 +4,8 @@ from typing import Dict, List, Optional, Tuple
 from src.models.robots import Robot
 import time
 from collections import deque
+import threading
+from collections import defaultdict
 
 class FleetManager:
     def __init__(self):
@@ -16,6 +18,8 @@ class FleetManager:
         self.selected_robot: Optional[Robot] = None
         self.navigation_delay = 2.0  # seconds between steps
         self.navigation_steps = 10
+        self.lane_occupancy = defaultdict(list)
+        self.lock = threading.Lock()
         
         # Visualization parameters
         self.padding: int = 50
@@ -266,30 +270,33 @@ class FleetManager:
             return []
             
         queue = deque()
-        queue.append((start_idx, []))
+        queue.append((start_idx, [start_idx]))  # Store the full path
         visited = set()
+        visited.add(start_idx)
         
         while queue:
             current_idx, path = queue.popleft()
-            if current_idx == end_idx:
-                return path + [current_idx]
-                
-            if current_idx in visited:
-                continue
-            visited.add(current_idx)
             
             # Get all connected vertices
             for lane in self.nav_graph["lanes"]:
                 if lane[0] == current_idx:
-                    queue.append((lane[1], path + [current_idx]))
+                    neighbor = lane[1]
                 elif lane[1] == current_idx:  # For undirected graphs
-                    queue.append((lane[0], path + [current_idx]))
+                    neighbor = lane[0]
+                else:
+                    continue
+                    
+                if neighbor == end_idx:
+                    return path + [neighbor]
+                    
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
         
         return []  # No path found
     
-    def calculate_path_along_edges(self, start_idx: int, end_idx: int) -> List[tuple]:
+    def calculate_path_along_edges(self, vertex_path: List[int]) -> List[tuple]:
         """Generate path points following graph edges"""
-        vertex_path = self.find_path(start_idx, end_idx)
         if not vertex_path:
             return []
             
@@ -360,3 +367,73 @@ class FleetManager:
             
         # If no robot clicked, deselect
         self.deselect_robot()
+
+    def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
+        """Threaded movement for a single robot"""
+        start_idx = self.get_vertex_index(robot.position)
+        end_idx = self.get_vertex_index(target_pos)
+        
+        if start_idx == -1 or end_idx == -1:
+            gui_update_callback(robot, "error")
+            return
+
+        path_indices = self.find_path(start_idx, end_idx)
+        if not path_indices:
+            gui_update_callback(robot, "blocked")
+            return
+            
+        path_points = self.calculate_path_along_edges(path_indices)
+        
+        # Try to reserve the path
+        with self.lock:
+            if not self.reserve_path(robot.robot_id, path_indices):
+                gui_update_callback(robot, "waiting")
+                return
+
+        # Execute movement
+        for point in path_points:
+            robot.position = point
+            gui_update_callback(robot, "moving")
+            time.sleep(0.3)  # Adjust speed as needed
+
+        # Release the path
+        with self.lock:
+            self.release_path(robot.robot_id, path_indices)
+            gui_update_callback(robot, "idle")
+
+    def reserve_path(self, robot_id, path_indices):
+        """Attempt to reserve all lanes in a path"""
+        # Convert vertex indices to lane tuples
+        lanes = [(path_indices[i], path_indices[i+1]) for i in range(len(path_indices)-1)]
+        
+        # Check if any lane is occupied
+        for lane in lanes:
+            if self.lane_occupancy[lane]:
+                return False
+                
+        # Reserve all lanes
+        for lane in lanes:
+            self.lane_occupancy[lane].append(robot_id)
+        return True
+
+    def release_path(self, robot_id, path_indices):
+        """Release all lanes in a path"""
+        lanes = [(path_indices[i], path_indices[i+1]) for i in range(len(path_indices)-1)]
+        for lane in lanes:
+            if robot_id in self.lane_occupancy[lane]:
+                self.lane_occupancy[lane].remove(robot_id)
+
+    def start_concurrent_movement(self, gui_update_callback):
+        """Launch all robot movements in separate threads"""
+        threads = []
+        for robot in self.robots:
+            if robot.robot_id in self.robot_destinations:
+                target = self.robot_destinations[robot.robot_id]
+                t = threading.Thread(
+                    target=self.move_robot_concurrently,
+                    args=(robot, target, gui_update_callback)
+                )
+                threads.append(t)
+                t.start()
+        
+        return threads

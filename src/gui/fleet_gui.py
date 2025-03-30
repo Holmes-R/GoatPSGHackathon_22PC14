@@ -2,12 +2,13 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox, simpledialog
 from datetime import datetime
 from src.controllers.fleet_manager import FleetManager
-
+import threading
 class FleetManagementApp:
     def __init__(self, master):
         self.master = master
         self.master.title("Fleet Management System")
         self.fleet_manager = FleetManager()
+        self.threads = [] 
         
         # UI Setup
         self.setup_main_window()
@@ -226,25 +227,53 @@ class FleetManagementApp:
         """Callback for updating robot visualization"""
         robot.update_visualization()
         self.master.update()  # Refresh GUI
+
+    def safe_gui_update(self, robot, status):
+        """Thread-safe GUI update"""
+        def update():
+            robot.status = status
+            robot.update_visualization()
+            self.canvas.delete("waiting_highlight")
+            if status == "waiting":
+                x, y = self.fleet_manager.get_canvas_coords(robot.position)
+                self.canvas.create_oval(x-15, y-15, x+15, y+15,
+                                      outline="yellow", width=3,
+                                      tags="waiting_highlight")
+        self.master.after(0, update) 
     
     def start_movement(self):
-        """Start animated movement"""
-        if self.after_id:
-            self.master.after_cancel(self.after_id)
+        """Start concurrent movement on button click"""
+        # Clear previous state
+        self.canvas.delete("waiting_highlight")
+        for t in self.threads:
+            t.join(timeout=0.1)
+        self.threads = []
         
-        success, messages = self.fleet_manager.start_movement(self.update_robot_display)
-        for msg in messages:
-            self.add_history_entry("System", msg)
+        # Start movement threads
+        for robot in self.fleet_manager.robots:
+            if robot.robot_id in self.fleet_manager.robot_destinations:
+                t = threading.Thread(
+                    target=self.fleet_manager.move_robot_concurrently,
+                    args=(
+                        robot,
+                        self.fleet_manager.robot_destinations[robot.robot_id],
+                        self.safe_gui_update
+                    ),
+                    daemon=True  # Thread will exit when main program exits
+                )
+                self.threads.append(t)
+                t.start()
         
-        if success:
-            self.start_button.config(state=tk.DISABLED)
+        # Update UI
+        self.start_button.config(state=tk.DISABLED)
+        self.add_history_entry("System", "Started concurrent movement")
 
-        def on_closing(self):
-            """Handle window closing"""
-            if self.after_id:
-                self.master.after_cancel(self.after_id)
-            self.master.destroy()
-
+    def on_closing(self):
+        """Clean up when window closes"""
+        for t in self.threads:
+            t.join(timeout=0.1)
+        self.master.destroy()
+        
     def move_robots(self):
         """Move all robots to random vertices"""
         success, messages = self.fleet_manager.move_all_robots_randomly()
@@ -301,6 +330,8 @@ class FleetManagementApp:
             self.move_button.config(state=tk.DISABLED)
             self.start_button.config(state=tk.DISABLED)
             self.deselect_robot()
+
+ 
 
     
 
