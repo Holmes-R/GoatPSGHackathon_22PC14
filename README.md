@@ -79,6 +79,6 @@ python main.py
 
 -  Path Reservation System ( Two-Phase Commit )
 
-- Congestion-Aware Pathfinding (A* algorithm)
+- Congestion-Aware Pathfinding (A* algorithm )
 
-- Priority Negotiation (based on urgency)
+- Priority Negotiation 
