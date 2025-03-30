@@ -8,3 +8,40 @@
 pip install -r requirements.txt
 
 python main.py
+
+
+### Project Explanation 
+
+#### 1. Visual Representation
+
+##### 1.1 Environment Visualization
+
+    The system provides a clear and interactive visualization of the navigation graph, 
+    including vertices (locations) and lanes (paths between locations).
+
+- Vertices 
+    - Each vertex is represented as a circular node .
+    - Vertices are labeled with unique names .
+    - Clicking a vertex allows spawning a robot or assigning a task
+- Lanes 
+    - Lanes are drawn as lines connecting vertices .
+    - Color-coded based on status:
+
+         - Green: Free
+
+        - Yellow: Reserved (in use by a robot)
+
+        -   Red: Blocked (collision or high congestion)
+
+##### 1.1 Robot Visualization
+    Robots are visually distinct and update in real-time as they move.
+
+- Each robot is displayed as a colored circle with a unique ID.
+- Status Indicators:
+
+        🟢 Moving (Green)
+
+        🟡 Waiting (Yellow)
+
+        🔴 Blocked (Red)
+
