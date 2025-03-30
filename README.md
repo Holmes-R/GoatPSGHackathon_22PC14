@@ -47,10 +47,25 @@ python main.py
 
 #### 2. Robot Spawing 
 
-##### Interactive GUI Spawning
+##### 2.1 Interactive GUI Spawning
 
     Users can spawn robots by clicking on any vertex.
 
 - Clicking a vertex opens a popup to spawn a robot .
 - Each robot gets a unique ID (e.g., "R1", "R2") .
 - If a vertex is occupied, a warning is displayed .
+
+### Project Explanation 
+
+#### 3. Navigation Task Assignment
+
+##### 3.1 Interactive Task Assignment
+
+    Users can assign tasks by selecting a robot and clicking a destination.
+
+
+- Step 1: Click a robot to select it.
+
+- Step 2: Click a destination vertex.
+
+- The robot immediately computes a path and starts moving.
