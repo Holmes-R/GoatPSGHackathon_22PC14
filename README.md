@@ -55,7 +55,6 @@ python main.py
 - Each robot gets a unique ID (e.g., "R1", "R2") .
 - If a vertex is occupied, a warning is displayed .
 
-### Project Explanation 
 
 #### 3. Navigation Task Assignment
 
@@ -69,6 +68,10 @@ python main.py
 - Step 2: Click a destination vertex.
 
 - The robot immediately computes a path and starts moving.
+
+- Primary Algorithm: A (A-Star) with Congestion Awareness
+
+- Fallback Algorithm: Breadth-First Search (BFS) : Finds any available path 
 
 #### 4. Traffic Negotiation & Collision Avoidance
 
