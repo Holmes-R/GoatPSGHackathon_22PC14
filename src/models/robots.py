@@ -25,19 +25,27 @@ class Robot:
         self.path = []
         self.path_history = []
         self.current_step = 0
-        self.battery = 100
+        self.battery_level = 100  
         self.position_lock = threading.Lock()
         
-        # Vertex tracking and logging
+        vertex_name = fleet_manager.get_vertex_name(position)
+        robot_logger.log_event(
+            robot_id=robot_id,
+            action="SPAWN",
+            path=vertex_name,
+            status="SUCCESS",
+            battery=self.battery_level
+        )
+        
         self.current_vertex = spawn_vertex if spawn_vertex else self._find_vertex_name()
         self.destination = initial_destination
         
-        # Initialize logging
-        robot_logger.log_spawn(
+        robot_logger.log_event(
             robot_id=self.robot_id,
+            action="INITIALIZE",
             source_vertex=self.current_vertex,
             destination_vertex=initial_destination,
-            battery=self.battery
+            battery=self.battery_level
         )
         
         self.status_colors = {
@@ -54,7 +62,7 @@ class Robot:
         self.task_complete_callback = None
         self.spawn()
         if initial_destination:
-            self.move_to_destination(initial_destination) 
+            self.move_to_destination(initial_destination)
 
     def spawn(self):
         """Create visual representation of the robot"""
@@ -78,7 +86,6 @@ class Robot:
         self.current_task = destination
         self.task_complete_callback = callback
         
-        # Log task assignment
         robot_logger.log_action(
             robot_id=self.robot_id,
             action="TASK_ASSIGNED",
@@ -86,7 +93,6 @@ class Robot:
             status="PENDING"
         )
         
-        # Execute movement
         if self.move_to_destination(destination):
             self.complete_task()
 
@@ -94,7 +100,6 @@ class Robot:
         """Update robot's visual position and status"""
         x, y = self._get_canvas_coords()
         
-        # Calculate offset for multiple robots at same position
         same_pos_robots = [r for r in self.fleet_manager.robots 
                          if r.position == self.position]
         index = same_pos_robots.index(self) if self in same_pos_robots else 0
@@ -123,11 +128,9 @@ class Robot:
 
     def _update_status_effects(self, x, y):
         """Update visual effects based on status"""
-        # Clear previous effects
         if hasattr(self, 'effect_id') and self.effect_id:
             self.canvas.delete(self.effect_id)
         
-        # Add new effects
         if self.status == "moving":
             self.effect_id = self.canvas.create_line(
                 x, y, x+20, y,
@@ -179,7 +182,6 @@ class Robot:
             self.position = new_position
             new_vertex = self._find_vertex_name()
             
-            # Log movement
             robot_logger.log_action(
                 robot_id=self.robot_id,
                 action="MOVE",
@@ -197,7 +199,6 @@ class Robot:
         self.status = status
         self.update_visualization()
         
-        # Log status changes when relevant
         if status in ["waiting", "blocked", "charging"]:
             robot_logger.log_action(
                 robot_id=self.robot_id,
@@ -292,7 +293,6 @@ class Robot:
         """Enhanced movement method with complete logging"""
         start_vertex = self._find_vertex_name()
         
-        # Log movement start
         robot_logger.log_action(
             robot_id=self.robot_id,
             action="MOVE_START",
@@ -301,7 +301,6 @@ class Robot:
             battery=self.battery
         )
         
-        # Execute movement using existing infrastructure
         success = self._execute_movement(destination_position)
         end_vertex = self._find_vertex_name()
         
@@ -328,23 +327,23 @@ class Robot:
 
     def _execute_movement(self, target_position):
         """Actual movement implementation with debug"""
-        print(f"Attempting movement to {target_position}")  # Debug
+        print(f"Attempting movement to {target_position}")  
         try:
             path = self.fleet_manager.calculate_path(self.position, target_position)
-            print(f"Calculated path: {path}")  # Debug
+            print(f"Calculated path: {path}") 
             
             for step in path:
                 with self.position_lock:
                     self.position = step
                     self.update_visualization()
-                    print(f"Moved to {step}")  # Debug
+                    print(f"Moved to {step}")  
                     time.sleep(0.1)
                     
-            print("Movement completed successfully")  # Debug
+            print("Movement completed successfully")  
             return True
             
         except Exception as e:
-            print(f"Movement failed: {str(e)}")  # Debug
+            print(f"Movement failed: {str(e)}")  
             return False
 
     def _calculate_move_distance(self, start_vertex, end_vertex):

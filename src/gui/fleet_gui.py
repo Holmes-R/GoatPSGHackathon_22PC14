@@ -294,7 +294,7 @@ class FleetManagementApp:
             self.add_history_entry("System", message)
     
     def prompt_destination(self, robot):
-        """Shows dialog for selecting robot destinations """
+        """Show destination selection dialog with proper vertex index handling"""
         dest_window = tk.Toplevel(self.master)
         dest_window.title(f"Select Destination for {robot.robot_id}")
         
@@ -310,9 +310,11 @@ class FleetManagementApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.dest_listbox = tk.Listbox(list_frame, height=10, width=40,
-                                     yscrollcommand=scrollbar.set, selectmode=tk.SINGLE)
+                                    yscrollcommand=scrollbar.set, selectmode=tk.SINGLE)
         self.dest_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.dest_listbox.yview)
+        
+        self.vertex_options = []  
         
         current_idx = self.fleet_manager.get_vertex_index(robot.position)
         for idx, name in sorted(self.fleet_manager.vertex_names.items()):
@@ -320,20 +322,34 @@ class FleetManagementApp:
                 occupied_by = self._get_vertex_occupant(idx)
                 display_text = f"{name}{' (Occupied)' if occupied_by else ''}"
                 self.dest_listbox.insert(tk.END, display_text)
+                self.vertex_options.append(idx)  
                 if occupied_by:
                     self.dest_listbox.itemconfig(tk.END, {'fg': 'red', 'bg': '#FFDDDD'})
+        
+        def assign_selected():
+            selection = self.dest_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a destination vertex")
+                return
+            
+            selected_idx = self.vertex_options[selection[0]]
+            success, message = self.fleet_manager.set_robot_destination(robot.robot_id, selected_idx)
+            self.add_history_entry(robot.robot_id, message)
+            if success:
+                self.start_button.config(state=tk.NORMAL)
+            dest_window.destroy()
         
         button_frame = tk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
         
         tk.Button(button_frame, text="Find Nearest Available",
-                 command=lambda: self.find_nearest_available(robot, current_idx, dest_window),
-                 width=20).pack(side=tk.LEFT, padx=5)
+                command=lambda: self.find_nearest_available(robot, current_idx, dest_window),
+                width=20).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Assign Destination",
-                 command=lambda: self.assign_selected_destination(robot, dest_window),
-                 width=20).pack(side=tk.LEFT, padx=5)
+                command=assign_selected,
+                width=20).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Cancel",
-                 command=dest_window.destroy, width=20).pack(side=tk.RIGHT, padx=5)
+                command=dest_window.destroy, width=20).pack(side=tk.RIGHT, padx=5)
         
     def start_movement(self):
         """Start concurrent movement of all robots"""

@@ -8,7 +8,6 @@ class PopupManager:
         msg = f"Destination Occupied\n{vertex_name} is taken by Robot {robot_id}.\nPlease choose another location."
         
         if find_nearest_callback:
-            # Custom dialog with "Find Nearest" button
             dialog = tk.Toplevel(parent)
             dialog.title("Conflict Detected")
             
@@ -19,5 +18,4 @@ class PopupManager:
             tk.Button(button_frame, text="OK", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
             tk.Button(button_frame, text="Find Nearest", command=find_nearest_callback).pack(side=tk.LEFT)
         else:
-            # Simple messagebox
             messagebox.showerror("Destination Occupied", msg)

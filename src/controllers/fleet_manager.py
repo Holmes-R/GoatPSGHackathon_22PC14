@@ -10,7 +10,8 @@ from src.controllers.traffic_manager import TrafficManager
 from src.utils.helper import PathFinder
 import math
 from concurrent.futures import ThreadPoolExecutor
-
+from src.utils.logger import robot_logger
+from src.utils.logger import *
 import tkinter as tk
 class FleetManager:
     def __init__(self):
@@ -21,17 +22,15 @@ class FleetManager:
         self.nav_graph: Optional[dict] = None
         self.robot_destinations: Dict[str, tuple] = {}
         self.selected_robot: Optional[Robot] = None
-        self.navigation_delay = 2.0  # seconds between steps
+        self.navigation_delay = 2.0  
         self.navigation_steps = 10
         self.traffic_manager = TrafficManager(self)     
         self.path_cache = {}   
         self.executor = ThreadPoolExecutor(max_workers=4)
         self.vertex_occupancy = {}
 
-        # Visualization states
         self.lane_status = {}
         
-        # Visualization parameters
         self.padding: int = 50
         self.vertex_radius: int = 15
         self.min_x: float = 0
@@ -104,13 +103,14 @@ class FleetManager:
     ### ROBOT MANAGEMENT FUNCTIONS 
 
     def spawn_robot(self, vertex_idx: int, canvas) -> Tuple[Optional[Robot], str]:
-        """Spawn a new robot at the specified vertex (allows multiple robots per vertex)"""
+        """Spawn a new robot with logging"""
         if not self.nav_graph or vertex_idx >= len(self.nav_graph["vertices"]):
             return None, "Invalid vertex index"
         
         self.robot_counter += 1
-        robot_id = f"R{self.robot_counter}" 
+        robot_id = f"R{self.robot_counter}"
         vertex = self.nav_graph["vertices"][vertex_idx]
+        vertex_name = self.vertex_names.get(vertex_idx, f"Vertex_{vertex_idx}")
         
         robot = Robot(
             robot_id=robot_id,
@@ -125,12 +125,13 @@ class FleetManager:
             scale_y=self.scale_y
         )
         
-        robot.spawn()  
-        self.robots.append(robot)  
-        return robot, f"Spawned at {self.vertex_names[vertex_idx]}"
+        robot.spawn()
+        self.robots.append(robot)
+        
+        return robot, f"Spawned at {vertex_name}"
 
     def set_robot_destination(self, robot_id: str, vertex_idx: int) -> Tuple[bool, str]:
-        """Set destination for a specific robot with occupancy check"""
+        """Set destination for a specific robot with occupancy check and path visualization"""
         if not self.nav_graph or vertex_idx >= len(self.nav_graph["vertices"]):
             return False, "Invalid vertex index"
         
@@ -146,10 +147,14 @@ class FleetManager:
         current_idx = self.get_vertex_index(robot.position)
         if current_idx == vertex_idx:
             return False, "Cannot set destination to current position"
-            
+        
+        path_indices = self.find_path_to_destination(robot.position, self.nav_graph["vertices"][vertex_idx])
+        path_display = self.get_path_with_vertex_names(path_indices)
+        
         target_vertex = self.nav_graph["vertices"][vertex_idx]
         self.robot_destinations[robot_id] = target_vertex
-        return True, f"Destination set to {self.vertex_names.get(vertex_idx, '')}"
+        
+        return True, f"Destination set to {self.vertex_names.get(vertex_idx, '')}. Path: {path_display}"
     
     def get_robot_by_id(self, robot_id):
         """Get robot by its ID"""
@@ -287,6 +292,20 @@ class FleetManager:
     def move_robot_concurrently(self, robot, target_pos, gui_update_callback):
         """Thread-safe movement with proper destination handling"""
         try:
+            start_idx = self.get_vertex_index(robot.position)
+            end_idx = self.get_vertex_index(target_pos) 
+            path_indices = self.find_path_to_destination(robot.position, target_pos)
+            path_names = self.get_path_with_vertex_names(path_indices)
+            path_display = self.get_path_with_vertex_names(path_indices)
+        
+            print(f"Robot {robot.robot_id} starting movement along: {path_names}")
+            robot_logger.log_event(
+            robot_id=robot.robot_id,
+            action="MOVE_START",
+            path=path_display,
+            status="IN_PROGRESS",
+            battery=robot.battery_level
+        )
             while True:
                 if self.has_reached_destination(robot.position, target_pos):
                     robot.set_status("idle")
@@ -296,7 +315,16 @@ class FleetManager:
                             print(f"Warning: Incomplete path release for {robot.robot_id}")
                         robot.path_history = []
                     
-                    # Force immediate GUI update
+                        dest_name = self.get_vertex_name(target_pos)
+                        robot_logger.log_event(
+                            robot_id=robot.robot_id,
+                            action="MOVE_COMPLETE",
+                            path=path_display,
+                            status="SUCCESS",
+                            battery=robot.battery_level
+                        )
+                        gui_update_callback(robot, "idle")
+                        break
                     gui_update_callback(robot, "idle")
                     break
                     
@@ -416,6 +444,19 @@ class FleetManager:
         available = [i for i in range(len(self.nav_graph["vertices"])) 
                     if i != current_idx]
         return self.nav_graph["vertices"][random.choice(available)] if available else current_pos
+    
+    def get_path_with_vertex_names(self, path_indices: List[int]) -> str:
+        """Convert path indices to a clean path string"""
+        if not path_indices:
+            return "No path"
+        
+        path_segments = []
+        for idx in path_indices:
+            name = self.vertex_names.get(idx, f"Vertex_{idx}")
+            clean_name = name.strip() if name.strip() else f"Vertex_{idx}"
+            path_segments.append(clean_name)
+        
+        return " → ".join(path_segments)    
 
     ### TRAFFIC MANAGEMENT INTEGRATION 
 

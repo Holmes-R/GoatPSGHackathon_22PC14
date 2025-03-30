@@ -1,0 +1,13 @@
+[2025-03-30 22:51:53.147390] RobotID:R2 | Action:SPAWN | Status:SUCCESS | Battery:100% | Path:p1
+[2025-03-30 22:51:53.225007] RobotID:R2 | Action:INITIALIZE | Status: | Battery:100% | From:Vertex_4
+[2025-03-30 22:51:58.844001] RobotID:R2 | Action:MOVE_START | Status:IN_PROGRESS | Battery:100% | Path:p1 → p3 → _2 → Vertex_1 → home
+[2025-03-30 22:53:59.100746] RobotID:R2 | Action:SPAWN | Status:SUCCESS | Battery:100% | Path:p1
+[2025-03-30 22:53:59.101742] RobotID:R2 | Action:INITIALIZE | Status: | Battery:100% | From:Vertex_4
+[2025-03-30 22:54:05.336122] RobotID:R2 | Action:MOVE_START | Status:IN_PROGRESS | Battery:100% | Path:p1 → p3 → _2 → Vertex_1 → home
+[2025-03-30 22:54:36.304230] RobotID:R2 | Action:SPAWN | Status:SUCCESS | Battery:100% | Path:p2
+[2025-03-30 22:54:36.314672] RobotID:R2 | Action:INITIALIZE | Status: | Battery:100% | From:Vertex_5
+[2025-03-30 22:54:42.211922] RobotID:R2 | Action:MOVE_START | Status:IN_PROGRESS | Battery:100% | Path:p2 → p5 → _2
+[2025-03-30 22:55:09.844251] RobotID:R2 | Action:MOVE_START | Status:IN_PROGRESS | Battery:100% | Path:_2
+[2025-03-30 22:56:53.946640] RobotID:R2 | Action:SPAWN | Status:SUCCESS | Battery:100% | Path:p1
+[2025-03-30 22:56:53.947766] RobotID:R2 | Action:INITIALIZE | Status: | Battery:100% | From:Vertex_4
+[2025-03-30 22:56:59.300316] RobotID:R2 | Action:MOVE_START | Status:IN_PROGRESS | Battery:100% | Path:p1 → p3 → _2
