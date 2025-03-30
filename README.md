@@ -69,3 +69,16 @@ python main.py
 - Step 2: Click a destination vertex.
 
 - The robot immediately computes a path and starts moving.
+
+#### 4. Traffic Negotiation & Collision Avoidance
+
+##### 4.1  Real-Time Traffic Management
+
+    The system ensures robots navigate efficiently without collisions using a combination of reservation-based path planning and priority negotiation algorithms.
+
+
+-  Path Reservation System ( Two-Phase Commit )
+
+- Congestion-Aware Pathfinding (A* algorithm)
+
+- Priority Negotiation (based on urgency)
