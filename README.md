@@ -6,7 +6,7 @@
 #### GUI for Testing 
 
 
-To run tests, run the following command
+To run tests, run the following command 
 
 ```bash
   pip install -r requirements.txt 
@@ -150,8 +150,6 @@ To run tests, run the following command
 - GUI Log Panel: Real-time updates in a scrollable history.
 - Log File Image 
 - ![image](https://github.com/user-attachments/assets/00614519-4dd6-4b10-b881-52a1d7c480b3)
-
-
 
 
 ###  Important Libraries Used 
