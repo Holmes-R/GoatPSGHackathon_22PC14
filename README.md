@@ -136,7 +136,6 @@ To run tests, run the following command
 
     All robot activities are logged for tracking.
 
-
 -  Log File: robot_<ROBOT_ID>.log records:
 
     - Spawn events
@@ -157,4 +156,3 @@ To run tests, run the following command
 - threading 
 - time 
 - heapq
-
