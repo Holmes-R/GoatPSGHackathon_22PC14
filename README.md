@@ -5,7 +5,6 @@
 
 #### GUI for Testing 
 
-
 To run tests, run the following command 
 
 ```bash
