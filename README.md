@@ -128,7 +128,6 @@ To run tests, run the following command
 
 ![image](https://github.com/user-attachments/assets/111268e1-3f31-49c4-a956-24e2c4b35f61)
 
-
 #### 7. Logging & Monitoring
 
 ##### 7.1 Detailed Logging
