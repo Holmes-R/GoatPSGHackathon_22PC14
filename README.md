@@ -53,7 +53,6 @@ To run tests, run the following command
 
 ![image](https://github.com/user-attachments/assets/2f816361-80ea-41ce-97e9-4845767cd11b)
 
-
 #### 2. Robot Spawing 
 
 ##### 2.1 Interactive GUI Spawning
