@@ -101,7 +101,6 @@ To run tests, run the following command
 
 ![image](https://github.com/user-attachments/assets/b1dbf0aa-f5aa-4588-9b61-986817760f2b)
 
-
 #### 5. Dynamic Interaction
 
 ##### 5.1 Runtime Flexibility
