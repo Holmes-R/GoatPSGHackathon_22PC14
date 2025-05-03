@@ -17,7 +17,6 @@ To run tests, run the following command
 
 ![image](https://github.com/user-attachments/assets/ae0e0d44-2fce-48d5-9ce2-60fde1be33d0)
 
-
 #### 1. Visual Representation
 
 ##### 1.1 Environment Visualization
