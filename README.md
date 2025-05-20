@@ -13,7 +13,6 @@ To run tests, run the following command
 ```
 ####
 
-
 ### Project Explanation 
 
 ![image](https://github.com/user-attachments/assets/ae0e0d44-2fce-48d5-9ce2-60fde1be33d0)
